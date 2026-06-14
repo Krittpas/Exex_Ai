@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Calendar, CheckSquare, Plus, Trash2, Check } from "lucide-react";
+import { Calendar, CheckSquare, Plus, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
 
 const C = {
   bg: "#080D1A", surface: "#0F172A", surfaceAlt: "#1A2235",
@@ -60,6 +60,13 @@ export default function App() {
   const [newEv, setNewEv] = useState({ hour:"8", endHour:"9", title:"", category:"school" });
   const [newTk, setNewTk] = useState({ title:"", priority:"medium", category:"school", due:"" });
   const [tkFilter, setTkFilter] = useState("all");
+  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  const shiftDate = (delta) => {
+    const d = new Date(date + "T00:00:00");
+    d.setDate(d.getDate() + delta);
+    setDate(d.toISOString().split("T")[0]);
+  };
 
   useEffect(() => {
     const handle = () => setIsMobile(window.innerWidth < 700);
@@ -79,7 +86,7 @@ export default function App() {
 
   const addEvent = () => {
     if (!newEv.title.trim()) return;
-    const ev = { id: Date.now().toString(), hour: +newEv.hour, endHour: +newEv.endHour, title: newEv.title.trim(), category: newEv.category };
+    const ev = { id: Date.now().toString(), date, hour: +newEv.hour, endHour: +newEv.endHour, title: newEv.title.trim(), category: newEv.category };
     saveEv([...events, ev].sort((a, b) => a.hour - b.hour));
     setNewEv({ hour:"8", endHour:"9", title:"", category:"school" });
     setShowAddEv(false);
@@ -193,48 +200,73 @@ export default function App() {
     </div>
   );
 
-  const PlannerView = () => (
-    <div>
-      <StatRow items={[
-        { label:"กิจกรรมวันนี้", val:events.length,  color:C.accent },
-        { label:"เวลาตอนนี้",   val:`${String(curH).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`, color:C.cyan, mono:true },
-        { label:"งานค้าง",      val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
-      ]} />
-      {showAddEv && <AddEventForm />}
-      <div style={card()}>
-        <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
-          ตารางเวลา — {fmtD(now)}
+  const PlannerView = () => {
+    const todayStr  = new Date().toISOString().split("T")[0];
+    const isToday   = date === todayStr;
+    const dayEvs    = events.filter(e => (e.date ?? todayStr) === date);
+    const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const navBtn    = (x={}) => ({ display:"flex", alignItems:"center", justifyContent:"center", width:32, height:32, borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s", ...x });
+    return (
+      <div>
+        {/* Date navigation */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+          <button style={navBtn()} onClick={() => shiftDate(-1)}><ChevronLeft size={16}/></button>
+          <div style={{ flex:1, textAlign:"center" }}>
+            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>{dateLabel}</div>
+            {isToday && (
+              <span style={{ fontSize:10, padding:"1px 8px", borderRadius:999, background:C.accentDim, color:C.accent, fontWeight:600 }}>วันนี้</span>
+            )}
+          </div>
+          <button style={navBtn()} onClick={() => shiftDate(1)}><ChevronRight size={16}/></button>
+          {!isToday && (
+            <button style={navBtn({ fontSize:10, padding:"0 10px", width:"auto", color:C.accent, borderColor:C.accent })}
+              onClick={() => setDate(todayStr)}>วันนี้</button>
+          )}
         </div>
-        {HOURS.map(h => {
-          const evs   = events.filter(e => e.hour === h);
-          const isCur = h === curH;
-          return (
-            <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
-              <div style={{ fontFamily:C.fontMono, fontSize:10, color:isCur?C.accent:C.dim, width:36, minWidth:36, paddingTop:6, textAlign:"right" }}>
-                {String(h).padStart(2,"0")}:00
+
+        <StatRow items={[
+          { label:"กิจกรรมวันนี้", val:dayEvs.length, color:C.accent },
+          { label:"เวลาตอนนี้", val:`${String(curH).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`, color:C.cyan, mono:true },
+          { label:"งานค้าง", val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
+        ]} />
+
+        {showAddEv && <AddEventForm />}
+
+        <div style={card()}>
+          <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
+            ตารางเวลา — {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
+          </div>
+          {HOURS.map(h => {
+            const evs   = dayEvs.filter(e => e.hour === h);
+            const isCur = isToday && h === curH;
+            return (
+              <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
+                <div style={{ fontFamily:C.fontMono, fontSize:10, color:isCur?C.accent:C.dim, width:36, minWidth:36, paddingTop:6, textAlign:"right" }}>
+                  {String(h).padStart(2,"0")}:00
+                </div>
+                <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
+                <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
+                  {isCur && evs.length === 0 && (
+                    <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>
+                  )}
+                  {evs.map(ev => {
+                    const cat = CATS[ev.category] || CATS.other;
+                    return (
+                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
+                        <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
+                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
+                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
-              <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
-                {isCur && evs.length === 0 && (
-                  <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>
-                )}
-                {evs.map(ev => {
-                  const cat = CATS[ev.category] || CATS.other;
-                  return (
-                    <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
-                      <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
-                      <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
-                      <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const TasksView = () => (
     <div>
