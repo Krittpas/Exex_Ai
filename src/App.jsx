@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { Calendar, CheckSquare, Plus, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
 
 const C = {
@@ -49,6 +49,103 @@ async function save(key, val) {
   catch {}
 }
 
+/* ── Module-level forms (outside App) — ไม่ถูก re-render จาก timer ── */
+
+const AddEventForm = memo(({ defaultDate, onAdd, onCancel }) => {
+  const [ev, setEv] = useState({
+    date: defaultDate,
+    hour: "8", endHour: "9", title: "", category: "school",
+  });
+
+  const handleAdd = () => {
+    if (!ev.title.trim()) return;
+    onAdd({ date: ev.date, hour: +ev.hour, endHour: +ev.endHour, title: ev.title.trim(), category: ev.category });
+  };
+
+  return (
+    <div style={{ ...card(), marginBottom:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มกิจกรรม</span>
+        <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={onCancel}>×</span>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+        <input style={inp()} placeholder="ชื่อกิจกรรม..." value={ev.title}
+          onChange={e => setEv(p => ({ ...p, title:e.target.value }))}
+          onKeyDown={e => e.key === "Enter" && handleAdd()} autoFocus />
+        <div>
+          <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>วันที่</div>
+          <input type="date" style={inp()} value={ev.date} onChange={e => setEv(p => ({ ...p, date:e.target.value }))} />
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          <div>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>เริ่ม</div>
+            <select style={inp()} value={ev.hour} onChange={e => setEv(p => ({ ...p, hour:e.target.value }))}>
+              {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>สิ้นสุด</div>
+            <select style={inp()} value={ev.endHour} onChange={e => setEv(p => ({ ...p, endHour:e.target.value }))}>
+              {HOURS.filter(h => h > +ev.hour).map(h => <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}
+            </select>
+          </div>
+        </div>
+        <select style={inp()} value={ev.category} onChange={e => setEv(p => ({ ...p, category:e.target.value }))}>
+          {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="bp" style={btn("primary", { flex:1 })} onClick={handleAdd}>เพิ่ม</button>
+          <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const AddTaskForm = memo(({ onAdd, onCancel }) => {
+  const [tk, setTk] = useState({ title:"", priority:"medium", category:"school", due:"" });
+
+  const handleAdd = () => {
+    if (!tk.title.trim()) return;
+    onAdd({ title: tk.title.trim(), priority: tk.priority, category: tk.category, due: tk.due });
+  };
+
+  return (
+    <div style={{ ...card(), marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มงาน</span>
+        <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={onCancel}>×</span>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+        <input style={inp()} placeholder="ชื่องาน..." value={tk.title}
+          onChange={e => setTk(p => ({ ...p, title:e.target.value }))}
+          onKeyDown={e => e.key === "Enter" && handleAdd()} autoFocus />
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          <div>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>ความสำคัญ</div>
+            <select style={inp()} value={tk.priority} onChange={e => setTk(p => ({ ...p, priority:e.target.value }))}>
+              {Object.entries(PRIS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>หมวดหมู่</div>
+            <select style={inp()} value={tk.category} onChange={e => setTk(p => ({ ...p, category:e.target.value }))}>
+              {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <input type="date" style={inp()} value={tk.due} onChange={e => setTk(p => ({ ...p, due:e.target.value }))} />
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="bp" style={btn("primary", { flex:1 })} onClick={handleAdd}>เพิ่ม</button>
+          <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ── Main App ── */
+
 export default function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 700);
   const [view, setView]         = useState("planner");
@@ -57,11 +154,9 @@ export default function App() {
   const [tasks,  setTasks]      = useState([]);
   const [showAddEv, setShowAddEv] = useState(false);
   const [showAddTk, setShowAddTk] = useState(false);
-  const [newEv, setNewEv] = useState({ hour:"8", endHour:"9", title:"", category:"school" });
-  const [newTk, setNewTk] = useState({ title:"", priority:"medium", category:"school", due:"" });
   const [tkFilter, setTkFilter] = useState("all");
   const [date, setDate]               = useState(() => new Date().toISOString().split("T")[0]);
-  const [plannerMode, setPlannerMode] = useState("timeline");
+  const [plannerMode, setPlannerMode] = useState("calendar");
   const [calMonth, setCalMonth]       = useState(() => new Date().toISOString().slice(0, 7));
 
   const shiftDate = (delta) => {
@@ -92,21 +187,28 @@ export default function App() {
   const saveEv = useCallback(async evs => { setEvents(evs); await save("exec-events", evs); }, []);
   const saveTk = useCallback(async tks => { setTasks(tks);  await save("exec-tasks",  tks); }, []);
 
-  const addEvent = () => {
-    if (!newEv.title.trim()) return;
-    const ev = { id: Date.now().toString(), date, hour: +newEv.hour, endHour: +newEv.endHour, title: newEv.title.trim(), category: newEv.category };
-    saveEv([...events, ev].sort((a, b) => a.hour - b.hour));
-    setNewEv({ hour:"8", endHour:"9", title:"", category:"school" });
+  const addEvent = useCallback((data) => {
+    const ev = { id: Date.now().toString(), ...data };
+    setEvents(prev => {
+      const sorted = [...prev, ev].sort((a, b) => a.hour - b.hour);
+      save("exec-events", sorted);
+      return sorted;
+    });
     setShowAddEv(false);
-  };
+  }, []);
 
-  const addTask = () => {
-    if (!newTk.title.trim()) return;
-    const tk = { id: Date.now().toString(), title: newTk.title.trim(), priority: newTk.priority, category: newTk.category, due: newTk.due, completed: false, createdAt: Date.now() };
-    saveTk([tk, ...tasks]);
-    setNewTk({ title:"", priority:"medium", category:"school", due:"" });
+  const addTask = useCallback((data) => {
+    const tk = { id: Date.now().toString(), ...data, completed: false, createdAt: Date.now() };
+    setTasks(prev => {
+      const next = [tk, ...prev];
+      save("exec-tasks", next);
+      return next;
+    });
     setShowAddTk(false);
-  };
+  }, []);
+
+  const cancelAddEv = useCallback(() => setShowAddEv(false), []);
+  const cancelAddTk = useCallback(() => setShowAddTk(false), []);
 
   const curH      = now.getHours();
   const doneCt    = tasks.filter(t => t.completed).length;
@@ -127,8 +229,7 @@ export default function App() {
     { id:"tasks",   icon:<CheckSquare size={20}/>, label:"Tasks",   badge:pendingCt },
   ];
 
-  /* ── SHARED SUB-VIEWS ────────────────────────────────── */
-
+  /* ── STAT ROW ── */
   const StatRow = ({ items }) => (
     <div style={{ display:"grid", gridTemplateColumns:`repeat(${items.length},1fr)`, gap:10, marginBottom:16 }}>
       {items.map((st, i) => (
@@ -140,74 +241,7 @@ export default function App() {
     </div>
   );
 
-  const AddEventForm = () => (
-    <div style={{ ...card(), marginBottom:16 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มกิจกรรม</span>
-        <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={() => setShowAddEv(false)}>×</span>
-      </div>
-      <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
-        <input style={inp()} placeholder="ชื่อกิจกรรม..." value={newEv.title}
-          onChange={e => setNewEv(p => ({ ...p, title:e.target.value }))}
-          onKeyDown={e => e.key === "Enter" && addEvent()} autoFocus />
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          <div>
-            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>เริ่ม</div>
-            <select style={inp()} value={newEv.hour} onChange={e => setNewEv(p => ({ ...p, hour:e.target.value }))}>
-              {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>สิ้นสุด</div>
-            <select style={inp()} value={newEv.endHour} onChange={e => setNewEv(p => ({ ...p, endHour:e.target.value }))}>
-              {HOURS.filter(h => h > +newEv.hour).map(h => <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>)}
-            </select>
-          </div>
-        </div>
-        <select style={inp()} value={newEv.category} onChange={e => setNewEv(p => ({ ...p, category:e.target.value }))}>
-          {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary", { flex:1 })} onClick={addEvent}>เพิ่ม</button>
-          <button className="bg" style={btn("ghost")} onClick={() => setShowAddEv(false)}>ยกเลิก</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const AddTaskForm = () => (
-    <div style={{ ...card(), marginBottom:14 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มงาน</span>
-        <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={() => setShowAddTk(false)}>×</span>
-      </div>
-      <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
-        <input style={inp()} placeholder="ชื่องาน..." value={newTk.title}
-          onChange={e => setNewTk(p => ({ ...p, title:e.target.value }))}
-          onKeyDown={e => e.key === "Enter" && addTask()} autoFocus />
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          <div>
-            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>ความสำคัญ</div>
-            <select style={inp()} value={newTk.priority} onChange={e => setNewTk(p => ({ ...p, priority:e.target.value }))}>
-              {Object.entries(PRIS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>หมวดหมู่</div>
-            <select style={inp()} value={newTk.category} onChange={e => setNewTk(p => ({ ...p, category:e.target.value }))}>
-              {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <input type="date" style={inp()} value={newTk.due} onChange={e => setNewTk(p => ({ ...p, due:e.target.value }))} />
-        <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary", { flex:1 })} onClick={addTask}>เพิ่ม</button>
-          <button className="bg" style={btn("ghost")} onClick={() => setShowAddTk(false)}>ยกเลิก</button>
-        </div>
-      </div>
-    </div>
-  );
-
+  /* ── PLANNER VIEW ── */
   const PlannerView = () => {
     const todayStr = new Date().toISOString().split("T")[0];
     const isToday  = date === todayStr;
@@ -216,9 +250,9 @@ export default function App() {
     const arrowBtn = { display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s" };
     const modeTab  = (active) => ({ padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer", border:"none", fontFamily:"inherit", transition:"all .15s", background:active ? C.accent : "transparent", color:active ? "#fff" : C.muted });
 
-    /* ── Calendar helpers ── */
+    /* Calendar helpers */
     const [cy, cm] = calMonth.split("-").map(Number);
-    const firstDow  = (new Date(cy, cm - 1, 1).getDay() + 6) % 7; // Mon = 0
+    const firstDow  = (new Date(cy, cm - 1, 1).getDay() + 6) % 7;
     const daysInMon = new Date(cy, cm, 0).getDate();
     const cells     = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMon }, (_, i) => i + 1)];
     while (cells.length % 7 !== 0) cells.push(null);
@@ -257,7 +291,7 @@ export default function App() {
               { label:"งานค้าง", val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
             ]} />
 
-            {showAddEv && <AddEventForm />}
+            {showAddEv && <AddEventForm defaultDate={date} onAdd={addEvent} onCancel={cancelAddEv} />}
 
             <div style={card()}>
               <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
@@ -313,13 +347,14 @@ export default function App() {
                 <div key={wi} style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
                   {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
                     if (!day) return <div key={di} style={{ minHeight:52 }} />;
-                    const dayStr  = `${cy}-${String(cm).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-                    const dayEvs  = events.filter(e => (e.date ?? todayStr) === dayStr);
-                    const isSel   = dayStr === date;
+                    const dayStr   = `${cy}-${String(cm).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                    const dayEvs   = events.filter(e => (e.date ?? todayStr) === dayStr);
+                    const isSel    = dayStr === date;
                     const isDToday = dayStr === todayStr;
-                    const isWknd  = di >= 5;
+                    const isWknd   = di >= 5;
                     return (
-                      <div key={di} onClick={() => { setDate(dayStr); setPlannerMode("timeline"); }}
+                      <div key={di}
+                        onClick={() => { setDate(dayStr); setCalMonth(dayStr.slice(0,7)); setPlannerMode("timeline"); }}
                         style={{ minHeight:52, borderRadius:7, padding:"5px 4px", cursor:"pointer", transition:"all .15s",
                           background: isSel ? C.accent : isDToday ? "rgba(99,102,241,.12)" : "rgba(255,255,255,.02)",
                           border:`1px solid ${isSel ? C.accent : isDToday ? "rgba(99,102,241,.4)" : C.border}`,
@@ -338,36 +373,13 @@ export default function App() {
                 </div>
               ))}
             </div>
-
-            {/* Selected day event list */}
-            {(() => {
-              const selEvs = events.filter(e => (e.date ?? todayStr) === date).sort((a, b) => a.hour - b.hour);
-              if (!selEvs.length) return null;
-              return (
-                <div style={{ marginTop:12 }}>
-                  <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:8 }}>
-                    {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long" })}
-                  </div>
-                  {selEvs.map(ev => {
-                    const cat = CATS[ev.category] || CATS.other;
-                    return (
-                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:5 }}>
-                        <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
-                        <span style={{ flex:1, fontSize:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
-                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.6 }}>{String(ev.hour).padStart(2,"0")}:00–{String(ev.endHour).padStart(2,"0")}:00</span>
-                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.6 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
           </div>
         )}
       </div>
     );
   };
 
+  /* ── TASKS VIEW ── */
   const TasksView = () => (
     <div>
       <div style={{ display:"flex", gap:5, marginBottom:12, flexWrap:"wrap" }}>
@@ -384,7 +396,7 @@ export default function App() {
         { label:"ยังค้าง", val:pendingCt,    color:C.red },
         { label:"เสร็จแล้ว", val:`${pct}%`,  color:C.green },
       ]} />
-      {showAddTk && <AddTaskForm />}
+      {showAddTk && <AddTaskForm onAdd={addTask} onCancel={cancelAddTk} />}
       {filtered.length === 0 ? (
         <div style={{ textAlign:"center", padding:40, color:C.dim }}>
           <div style={{ fontSize:28, marginBottom:8 }}>✓</div>
@@ -416,7 +428,7 @@ export default function App() {
     </div>
   );
 
-  /* ─── MOBILE LAYOUT ──────────────────────────────────── */
+  /* ─── MOBILE LAYOUT ── */
   if (isMobile) return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden" }}>
       <style>{`
@@ -448,8 +460,8 @@ export default function App() {
       </div>
 
       <div style={{ flex:1, overflowY:"auto", padding:"14px" }}>
-        {view==="planner" && <PlannerView />}
-        {view==="tasks"   && <TasksView />}
+        {view==="planner" && PlannerView()}
+        {view==="tasks"   && TasksView()}
       </div>
 
       <div style={{ display:"flex", borderTop:`1px solid ${C.border}`, background:"rgba(9,14,28,.97)", paddingBottom:"env(safe-area-inset-bottom)", flexShrink:0 }}>
@@ -468,7 +480,7 @@ export default function App() {
     </div>
   );
 
-  /* ─── DESKTOP LAYOUT ─────────────────────────────────── */
+  /* ─── DESKTOP LAYOUT ── */
   return (
     <div style={{ display:"flex", height:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden" }}>
       <style>{`
@@ -520,7 +532,7 @@ export default function App() {
               {view==="tasks"   && "✅ จัดการงาน"}
             </div>
             <div style={{ fontSize:11, color:C.muted, marginTop:1 }}>
-              {view==="planner" && `${events.length} กิจกรรมวันนี้`}
+              {view==="planner" && `${events.length} กิจกรรมทั้งหมด`}
               {view==="tasks"   && `${pendingCt} งานที่ยังค้าง`}
             </div>
           </div>
@@ -530,8 +542,8 @@ export default function App() {
           </div>
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"18px 22px" }}>
-          {view==="planner" && <PlannerView />}
-          {view==="tasks"   && <TasksView />}
+          {view==="planner" && PlannerView()}
+          {view==="tasks"   && TasksView()}
         </div>
       </div>
     </div>
