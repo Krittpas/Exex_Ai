@@ -60,12 +60,20 @@ export default function App() {
   const [newEv, setNewEv] = useState({ hour:"8", endHour:"9", title:"", category:"school" });
   const [newTk, setNewTk] = useState({ title:"", priority:"medium", category:"school", due:"" });
   const [tkFilter, setTkFilter] = useState("all");
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate]               = useState(() => new Date().toISOString().split("T")[0]);
+  const [plannerMode, setPlannerMode] = useState("timeline");
+  const [calMonth, setCalMonth]       = useState(() => new Date().toISOString().slice(0, 7));
 
   const shiftDate = (delta) => {
     const d = new Date(date + "T00:00:00");
     d.setDate(d.getDate() + delta);
     setDate(d.toISOString().split("T")[0]);
+  };
+
+  const shiftCalMonth = (delta) => {
+    const [y, m] = calMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setCalMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
 
   useEffect(() => {
@@ -201,69 +209,161 @@ export default function App() {
   );
 
   const PlannerView = () => {
-    const todayStr  = new Date().toISOString().split("T")[0];
-    const isToday   = date === todayStr;
-    const dayEvs    = events.filter(e => (e.date ?? todayStr) === date);
-    const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
-    const navBtn    = (x={}) => ({ display:"flex", alignItems:"center", justifyContent:"center", width:32, height:32, borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s", ...x });
+    const todayStr = new Date().toISOString().split("T")[0];
+    const isToday  = date === todayStr;
+    const dayEvs   = events.filter(e => (e.date ?? todayStr) === date);
+
+    const arrowBtn = { display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s" };
+    const modeTab  = (active) => ({ padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer", border:"none", fontFamily:"inherit", transition:"all .15s", background:active ? C.accent : "transparent", color:active ? "#fff" : C.muted });
+
+    /* ── Calendar helpers ── */
+    const [cy, cm] = calMonth.split("-").map(Number);
+    const firstDow  = (new Date(cy, cm - 1, 1).getDay() + 6) % 7; // Mon = 0
+    const daysInMon = new Date(cy, cm, 0).getDate();
+    const cells     = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMon }, (_, i) => i + 1)];
+    while (cells.length % 7 !== 0) cells.push(null);
+    const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString("th-TH", { month:"long", year:"numeric" });
+
     return (
       <div>
-        {/* Date navigation */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-          <button style={navBtn()} onClick={() => shiftDate(-1)}><ChevronLeft size={16}/></button>
-          <div style={{ flex:1, textAlign:"center" }}>
-            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>{dateLabel}</div>
-            {isToday && (
-              <span style={{ fontSize:10, padding:"1px 8px", borderRadius:999, background:C.accentDim, color:C.accent, fontWeight:600 }}>วันนี้</span>
-            )}
+        {/* Mode toggle */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <div style={{ display:"flex", gap:3, background:"rgba(99,102,241,.07)", padding:3, borderRadius:8, border:`1px solid ${C.border}` }}>
+            <button style={modeTab(plannerMode === "timeline")} onClick={() => setPlannerMode("timeline")}>📅 ตาราง</button>
+            <button style={modeTab(plannerMode === "calendar")} onClick={() => { setPlannerMode("calendar"); setCalMonth(date.slice(0, 7)); }}>🗓 ปฏิทิน</button>
           </div>
-          <button style={navBtn()} onClick={() => shiftDate(1)}><ChevronRight size={16}/></button>
           {!isToday && (
-            <button style={navBtn({ fontSize:10, padding:"0 10px", width:"auto", color:C.accent, borderColor:C.accent })}
-              onClick={() => setDate(todayStr)}>วันนี้</button>
+            <button className="bp" style={btn("primary", { fontSize:11, padding:"5px 12px" })} onClick={() => setDate(todayStr)}>กลับวันนี้</button>
           )}
         </div>
 
-        <StatRow items={[
-          { label:"กิจกรรมวันนี้", val:dayEvs.length, color:C.accent },
-          { label:"เวลาตอนนี้", val:`${String(curH).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`, color:C.cyan, mono:true },
-          { label:"งานค้าง", val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
-        ]} />
-
-        {showAddEv && <AddEventForm />}
-
-        <div style={card()}>
-          <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
-            ตารางเวลา — {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
-          </div>
-          {HOURS.map(h => {
-            const evs   = dayEvs.filter(e => e.hour === h);
-            const isCur = isToday && h === curH;
-            return (
-              <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
-                <div style={{ fontFamily:C.fontMono, fontSize:10, color:isCur?C.accent:C.dim, width:36, minWidth:36, paddingTop:6, textAlign:"right" }}>
-                  {String(h).padStart(2,"0")}:00
+        {plannerMode === "timeline" ? (
+          <>
+            {/* Date nav */}
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+              <button className="nav-arrow" style={arrowBtn} onClick={() => shiftDate(-1)}><ChevronLeft size={16}/></button>
+              <div style={{ flex:1, textAlign:"center" }}>
+                <div style={{ fontSize:14, fontWeight:600, color:C.text }}>
+                  {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
                 </div>
-                <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
-                <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
-                  {isCur && evs.length === 0 && (
-                    <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>
-                  )}
-                  {evs.map(ev => {
-                    const cat = CATS[ev.category] || CATS.other;
+                {isToday && <span style={{ fontSize:10, padding:"1px 8px", borderRadius:999, background:C.accentDim, color:C.accent, fontWeight:600 }}>วันนี้</span>}
+              </div>
+              <button className="nav-arrow" style={arrowBtn} onClick={() => shiftDate(1)}><ChevronRight size={16}/></button>
+            </div>
+
+            <StatRow items={[
+              { label:"กิจกรรม", val:dayEvs.length, color:C.accent },
+              { label:"เวลาตอนนี้", val:`${String(curH).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`, color:C.cyan, mono:true },
+              { label:"งานค้าง", val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
+            ]} />
+
+            {showAddEv && <AddEventForm />}
+
+            <div style={card()}>
+              <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
+                ตารางเวลา — {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
+              </div>
+              {HOURS.map(h => {
+                const evs   = dayEvs.filter(e => e.hour === h);
+                const isCur = isToday && h === curH;
+                return (
+                  <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
+                    <div style={{ fontFamily:C.fontMono, fontSize:10, color:isCur?C.accent:C.dim, width:36, minWidth:36, paddingTop:6, textAlign:"right" }}>
+                      {String(h).padStart(2,"0")}:00
+                    </div>
+                    <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
+                    <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
+                      {isCur && evs.length === 0 && <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>}
+                      {evs.map(ev => {
+                        const cat = CATS[ev.category] || CATS.other;
+                        return (
+                          <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
+                            <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
+                            <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
+                            <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          /* ── Calendar view ── */
+          <div>
+            {/* Month nav */}
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+              <button className="nav-arrow" style={arrowBtn} onClick={() => shiftCalMonth(-1)}><ChevronLeft size={16}/></button>
+              <div style={{ flex:1, textAlign:"center", fontSize:14, fontWeight:600, color:C.text }}>{monthLabel}</div>
+              <button className="nav-arrow" style={arrowBtn} onClick={() => shiftCalMonth(1)}><ChevronRight size={16}/></button>
+            </div>
+
+            <div style={card({ padding:12 })}>
+              {/* Day headers */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:6 }}>
+                {["จ","อ","พ","พฤ","ศ","ส","อา"].map((d, i) => (
+                  <div key={i} style={{ textAlign:"center", fontSize:10, fontWeight:600, color:i >= 5 ? "#F87171" : C.muted, padding:"4px 0" }}>{d}</div>
+                ))}
+              </div>
+
+              {/* Weeks */}
+              {Array.from({ length: cells.length / 7 }, (_, wi) => (
+                <div key={wi} style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
+                  {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
+                    if (!day) return <div key={di} style={{ minHeight:52 }} />;
+                    const dayStr  = `${cy}-${String(cm).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                    const dayEvs  = events.filter(e => (e.date ?? todayStr) === dayStr);
+                    const isSel   = dayStr === date;
+                    const isDToday = dayStr === todayStr;
+                    const isWknd  = di >= 5;
                     return (
-                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
-                        <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
-                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
-                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
+                      <div key={di} onClick={() => { setDate(dayStr); setPlannerMode("timeline"); }}
+                        style={{ minHeight:52, borderRadius:7, padding:"5px 4px", cursor:"pointer", transition:"all .15s",
+                          background: isSel ? C.accent : isDToday ? "rgba(99,102,241,.12)" : "rgba(255,255,255,.02)",
+                          border:`1px solid ${isSel ? C.accent : isDToday ? "rgba(99,102,241,.4)" : C.border}`,
+                        }}>
+                        <div style={{ fontSize:12, fontWeight:isSel||isDToday ? 700 : 400, color:isSel ? "#fff" : isDToday ? C.accent : isWknd ? "#F87171" : C.text, textAlign:"center", marginBottom:3 }}>{day}</div>
+                        <div style={{ display:"flex", gap:2, flexWrap:"wrap", justifyContent:"center" }}>
+                          {dayEvs.slice(0, 3).map(ev => {
+                            const cat = CATS[ev.category] || CATS.other;
+                            return <div key={ev.id} style={{ width:5, height:5, borderRadius:"50%", background:isSel ? "rgba(255,255,255,.75)" : cat.color }} />;
+                          })}
+                          {dayEvs.length > 3 && <span style={{ fontSize:8, color:isSel ? "rgba(255,255,255,.7)" : C.muted }}>+{dayEvs.length - 3}</span>}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              ))}
+            </div>
+
+            {/* Selected day event list */}
+            {(() => {
+              const selEvs = events.filter(e => (e.date ?? todayStr) === date).sort((a, b) => a.hour - b.hour);
+              if (!selEvs.length) return null;
+              return (
+                <div style={{ marginTop:12 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:8 }}>
+                    {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long" })}
+                  </div>
+                  {selEvs.map(ev => {
+                    const cat = CATS[ev.category] || CATS.other;
+                    return (
+                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:5 }}>
+                        <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
+                        <span style={{ flex:1, fontSize:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
+                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.6 }}>{String(ev.hour).padStart(2,"0")}:00–{String(ev.endHour).padStart(2,"0")}:00</span>
+                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.6 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     );
   };
@@ -325,6 +425,7 @@ export default function App() {
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:2px}
         input::placeholder{color:#374151}select option{background:#0F172A;color:#E2E8F0}
         .bp:hover{background:#4F46E5!important}.bg:hover{background:rgba(99,102,241,.1)!important;color:#A5B4FC!important}
+        .nav-arrow:hover{border-color:#6366F1!important;color:#6366F1!important;background:rgba(99,102,241,.1)!important}
         .cs:hover{background:rgba(99,102,241,.18)!important}
         input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
       `}</style>
@@ -376,6 +477,7 @@ export default function App() {
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:2px}
         input::placeholder{color:#374151}select option{background:#0F172A;color:#E2E8F0}
         .bp:hover{background:#4F46E5!important}.bg:hover{background:rgba(99,102,241,.1)!important;color:#A5B4FC!important}
+        .nav-arrow:hover{border-color:#6366F1!important;color:#6366F1!important;background:rgba(99,102,241,.1)!important}
         .nav-i:hover{background:rgba(99,102,241,.08)!important;color:#A5B4FC!important}
         .cs:hover{background:rgba(99,102,241,.18)!important}
         input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
