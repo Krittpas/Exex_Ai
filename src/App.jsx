@@ -298,7 +298,7 @@ export default function App() {
                 ตารางเวลา — {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
               </div>
               {HOURS.map(h => {
-                const evs   = dayEvs.filter(e => e.hour === h);
+                const evs   = dayEvs.filter(e => h >= e.hour && h < e.endHour);
                 const isCur = isToday && h === curH;
                 return (
                   <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
