@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, memo } from "react";
 import { Calendar, CheckSquare, Plus, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { supabase } from "./lib/supabase";
 
 const C = {
   bg: "#080D1A", surface: "#0F172A", surfaceAlt: "#1A2235",
@@ -40,26 +41,18 @@ const btn  = (v="primary", x={}) => ({
     : {}), ...x
 });
 
-async function load(key) {
-  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; }
-  catch { return null; }
-}
-async function save(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); }
-  catch {}
-}
+/* map DB row → JS object */
+const toEv = r => ({ id:r.id, date:r.date, hour:r.hour, endHour:r.end_hour, title:r.title, category:r.category });
+const toTk = r => ({ id:r.id, title:r.title, priority:r.priority, category:r.category, due:r.due, completed:r.completed, createdAt:r.created_at });
 
-/* ── Module-level forms (outside App) — ไม่ถูก re-render จาก timer ── */
+/* ── Module-level forms — ไม่ถูก re-render จาก timer ── */
 
 const AddEventForm = memo(({ defaultDate, onAdd, onCancel }) => {
-  const [ev, setEv] = useState({
-    date: defaultDate,
-    hour: "8", endHour: "9", title: "", category: "school",
-  });
+  const [ev, setEv] = useState({ date: defaultDate, hour:"8", endHour:"9", title:"", category:"school" });
 
   const handleAdd = () => {
     if (!ev.title.trim()) return;
-    onAdd({ date: ev.date, hour: +ev.hour, endHour: +ev.endHour, title: ev.title.trim(), category: ev.category });
+    onAdd({ date:ev.date, hour:+ev.hour, endHour:+ev.endHour, title:ev.title.trim(), category:ev.category });
   };
 
   return (
@@ -107,7 +100,7 @@ const AddTaskForm = memo(({ onAdd, onCancel }) => {
 
   const handleAdd = () => {
     if (!tk.title.trim()) return;
-    onAdd({ title: tk.title.trim(), priority: tk.priority, category: tk.category, due: tk.due });
+    onAdd({ title:tk.title.trim(), priority:tk.priority, category:tk.category, due:tk.due });
   };
 
   return (
@@ -152,6 +145,7 @@ export default function App() {
   const [now,  setNow]          = useState(new Date());
   const [events, setEvents]     = useState([]);
   const [tasks,  setTasks]      = useState([]);
+  const [loading, setLoading]   = useState(true);
   const [showAddEv, setShowAddEv] = useState(false);
   const [showAddTk, setShowAddTk] = useState(false);
   const [tkFilter, setTkFilter] = useState("all");
@@ -179,32 +173,47 @@ export default function App() {
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
 
+  /* โหลดข้อมูลจาก Supabase */
   useEffect(() => {
-    load("exec-events").then(d => d && setEvents(d));
-    load("exec-tasks").then(d  => d && setTasks(d));
+    Promise.all([
+      supabase.from("events").select("*"),
+      supabase.from("tasks").select("*").order("created_at", { ascending: false }),
+    ]).then(([{ data: evData }, { data: tkData }]) => {
+      if (evData) setEvents(evData.map(toEv));
+      if (tkData) setTasks(tkData.map(toTk));
+      setLoading(false);
+    });
   }, []);
 
-  const saveEv = useCallback(async evs => { setEvents(evs); await save("exec-events", evs); }, []);
-  const saveTk = useCallback(async tks => { setTasks(tks);  await save("exec-tasks",  tks); }, []);
-
-  const addEvent = useCallback((data) => {
-    const ev = { id: Date.now().toString(), ...data };
-    setEvents(prev => {
-      const sorted = [...prev, ev].sort((a, b) => a.hour - b.hour);
-      save("exec-events", sorted);
-      return sorted;
-    });
+  /* Events CRUD */
+  const addEvent = useCallback(async (data) => {
+    const row = { id: Date.now().toString(), date: data.date, hour: data.hour, end_hour: data.endHour, title: data.title, category: data.category };
+    const { data: inserted } = await supabase.from("events").insert([row]).select();
+    if (inserted) setEvents(prev => [...prev, toEv(inserted[0])].sort((a, b) => a.hour - b.hour));
     setShowAddEv(false);
   }, []);
 
-  const addTask = useCallback((data) => {
-    const tk = { id: Date.now().toString(), ...data, completed: false, createdAt: Date.now() };
-    setTasks(prev => {
-      const next = [tk, ...prev];
-      save("exec-tasks", next);
-      return next;
-    });
+  const deleteEvent = useCallback(async (id) => {
+    await supabase.from("events").delete().eq("id", id);
+    setEvents(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  /* Tasks CRUD */
+  const addTask = useCallback(async (data) => {
+    const row = { id: Date.now().toString(), title: data.title, priority: data.priority, category: data.category, due: data.due || null, completed: false, created_at: Date.now() };
+    const { data: inserted } = await supabase.from("tasks").insert([row]).select();
+    if (inserted) setTasks(prev => [toTk(inserted[0]), ...prev]);
     setShowAddTk(false);
+  }, []);
+
+  const deleteTask = useCallback(async (id) => {
+    await supabase.from("tasks").delete().eq("id", id);
+    setTasks(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const toggleTask = useCallback(async (id, completed) => {
+    await supabase.from("tasks").update({ completed: !completed }).eq("id", id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !completed } : t));
   }, []);
 
   const cancelAddEv = useCallback(() => setShowAddEv(false), []);
@@ -245,18 +254,21 @@ export default function App() {
   const PlannerView = () => {
     const todayStr = new Date().toISOString().split("T")[0];
     const isToday  = date === todayStr;
-    const dayEvs   = events.filter(e => (e.date ?? todayStr) === date);
+    const dayEvs   = events.filter(e => e.date === date);
 
     const arrowBtn = { display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s" };
     const modeTab  = (active) => ({ padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer", border:"none", fontFamily:"inherit", transition:"all .15s", background:active ? C.accent : "transparent", color:active ? "#fff" : C.muted });
 
-    /* Calendar helpers */
     const [cy, cm] = calMonth.split("-").map(Number);
     const firstDow  = (new Date(cy, cm - 1, 1).getDay() + 6) % 7;
     const daysInMon = new Date(cy, cm, 0).getDate();
     const cells     = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMon }, (_, i) => i + 1)];
     while (cells.length % 7 !== 0) cells.push(null);
     const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString("th-TH", { month:"long", year:"numeric" });
+
+    if (loading) return (
+      <div style={{ textAlign:"center", padding:60, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>
+    );
 
     return (
       <div>
@@ -273,7 +285,6 @@ export default function App() {
 
         {plannerMode === "timeline" ? (
           <>
-            {/* Date nav */}
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
               <button className="nav-arrow" style={arrowBtn} onClick={() => shiftDate(-1)}><ChevronLeft size={16}/></button>
               <div style={{ flex:1, textAlign:"center" }}>
@@ -314,7 +325,7 @@ export default function App() {
                           <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
                             <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
                             <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
-                            <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => saveEv(events.filter(e => e.id !== ev.id))}>×</span>
+                            <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => deleteEvent(ev.id)}>×</span>
                           </div>
                         );
                       })}
@@ -325,9 +336,7 @@ export default function App() {
             </div>
           </>
         ) : (
-          /* ── Calendar view ── */
           <div>
-            {/* Month nav */}
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
               <button className="nav-arrow" style={arrowBtn} onClick={() => shiftCalMonth(-1)}><ChevronLeft size={16}/></button>
               <div style={{ flex:1, textAlign:"center", fontSize:14, fontWeight:600, color:C.text }}>{monthLabel}</div>
@@ -335,20 +344,17 @@ export default function App() {
             </div>
 
             <div style={card({ padding:12 })}>
-              {/* Day headers */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:6 }}>
                 {["จ","อ","พ","พฤ","ศ","ส","อา"].map((d, i) => (
                   <div key={i} style={{ textAlign:"center", fontSize:10, fontWeight:600, color:i >= 5 ? "#F87171" : C.muted, padding:"4px 0" }}>{d}</div>
                 ))}
               </div>
-
-              {/* Weeks */}
               {Array.from({ length: cells.length / 7 }, (_, wi) => (
                 <div key={wi} style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
                   {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
                     if (!day) return <div key={di} style={{ minHeight:52 }} />;
                     const dayStr   = `${cy}-${String(cm).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-                    const dayEvs   = events.filter(e => (e.date ?? todayStr) === dayStr);
+                    const dayEvs   = events.filter(e => e.date === dayStr);
                     const isSel    = dayStr === date;
                     const isDToday = dayStr === todayStr;
                     const isWknd   = di >= 5;
@@ -359,13 +365,13 @@ export default function App() {
                           background: isSel ? C.accent : isDToday ? "rgba(99,102,241,.12)" : "rgba(255,255,255,.02)",
                           border:`1px solid ${isSel ? C.accent : isDToday ? "rgba(99,102,241,.4)" : C.border}`,
                         }}>
-                        <div style={{ fontSize:12, fontWeight:isSel||isDToday ? 700 : 400, color:isSel ? "#fff" : isDToday ? C.accent : isWknd ? "#F87171" : C.text, textAlign:"center", marginBottom:3 }}>{day}</div>
+                        <div style={{ fontSize:12, fontWeight:isSel||isDToday?700:400, color:isSel?"#fff":isDToday?C.accent:isWknd?"#F87171":C.text, textAlign:"center", marginBottom:3 }}>{day}</div>
                         <div style={{ display:"flex", gap:2, flexWrap:"wrap", justifyContent:"center" }}>
                           {dayEvs.slice(0, 3).map(ev => {
                             const cat = CATS[ev.category] || CATS.other;
-                            return <div key={ev.id} style={{ width:5, height:5, borderRadius:"50%", background:isSel ? "rgba(255,255,255,.75)" : cat.color }} />;
+                            return <div key={ev.id} style={{ width:5, height:5, borderRadius:"50%", background:isSel?"rgba(255,255,255,.75)":cat.color }} />;
                           })}
-                          {dayEvs.length > 3 && <span style={{ fontSize:8, color:isSel ? "rgba(255,255,255,.7)" : C.muted }}>+{dayEvs.length - 3}</span>}
+                          {dayEvs.length > 3 && <span style={{ fontSize:8, color:isSel?"rgba(255,255,255,.7)":C.muted }}>+{dayEvs.length-3}</span>}
                         </div>
                       </div>
                     );
@@ -373,6 +379,37 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {/* Selected day panel */}
+            {(() => {
+              const selEvs = events.filter(e => e.date === date).sort((a, b) => a.hour - b.hour);
+              return (
+                <div style={{ marginTop:12 }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>
+                      {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long" })}
+                    </div>
+                    <button className="bp" style={btn("primary", { fontSize:11, padding:"4px 10px" })}
+                      onClick={() => setShowAddEv(p => !p)}>+ เพิ่ม</button>
+                  </div>
+                  {showAddEv && <AddEventForm defaultDate={date} onAdd={addEvent} onCancel={cancelAddEv} />}
+                  {selEvs.length === 0 && !showAddEv && (
+                    <div style={{ textAlign:"center", padding:"16px 0", color:C.dim, fontSize:12 }}>ยังไม่มีกิจกรรม — กดวันในปฏิทินเพื่อดูตาราง</div>
+                  )}
+                  {selEvs.map(ev => {
+                    const cat = CATS[ev.category] || CATS.other;
+                    return (
+                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:5 }}>
+                        <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
+                        <span style={{ flex:1, fontSize:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
+                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.6 }}>{String(ev.hour).padStart(2,"0")}:00–{String(ev.endHour).padStart(2,"0")}:00</span>
+                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.6 }} onClick={() => deleteEvent(ev.id)}>×</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -397,7 +434,9 @@ export default function App() {
         { label:"เสร็จแล้ว", val:`${pct}%`,  color:C.green },
       ]} />
       {showAddTk && <AddTaskForm onAdd={addTask} onCancel={cancelAddTk} />}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign:"center", padding:40, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>
+      ) : filtered.length === 0 ? (
         <div style={{ textAlign:"center", padding:40, color:C.dim }}>
           <div style={{ fontSize:28, marginBottom:8 }}>✓</div>
           <div style={{ fontSize:13 }}>ไม่มีงานในหมวดนี้</div>
@@ -407,7 +446,7 @@ export default function App() {
         const pri = PRIS[tk.priority] || PRIS.medium;
         return (
           <div key={tk.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"11px 12px", borderRadius:9, background:"rgba(15,23,42,.5)", border:`1px solid ${C.border}`, marginBottom:7, opacity:tk.completed ? .45 : 1, minHeight:44 }}>
-            <div onClick={() => saveTk(tasks.map(t => t.id === tk.id ? { ...t, completed:!t.completed } : t))}
+            <div onClick={() => toggleTask(tk.id, tk.completed)}
               style={{ width:18, height:18, borderRadius:4, border:`2px solid ${tk.completed?C.accent:"rgba(99,102,241,.35)"}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1, background:tk.completed?C.accent:"transparent", transition:"all .15s" }}>
               {tk.completed && <Check size={11} color="#fff" />}
             </div>
@@ -419,7 +458,7 @@ export default function App() {
                 {tk.due && <span style={tag(C.muted, "rgba(148,163,184,.08)")}>📅 {tk.due}</span>}
               </div>
             </div>
-            <button className="bg" style={btn("danger", { fontSize:11, padding:"4px 8px", flexShrink:0 })} onClick={() => saveTk(tasks.filter(t => t.id !== tk.id))}>
+            <button className="bg" style={btn("danger", { fontSize:11, padding:"4px 8px", flexShrink:0 })} onClick={() => deleteTask(tk.id)}>
               <Trash2 size={12} />
             </button>
           </div>
