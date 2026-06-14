@@ -361,17 +361,27 @@ export default function App() {
                     return (
                       <div key={di}
                         onClick={() => { setDate(dayStr); setCalMonth(dayStr.slice(0,7)); setPlannerMode("timeline"); }}
-                        style={{ minHeight:52, borderRadius:7, padding:"5px 4px", cursor:"pointer", transition:"all .15s",
+                        style={{ minHeight:68, borderRadius:7, padding:"5px 5px 4px", cursor:"pointer", transition:"all .15s",
                           background: isSel ? C.accent : isDToday ? "rgba(99,102,241,.12)" : "rgba(255,255,255,.02)",
                           border:`1px solid ${isSel ? C.accent : isDToday ? "rgba(99,102,241,.4)" : C.border}`,
+                          overflow:"hidden",
                         }}>
-                        <div style={{ fontSize:12, fontWeight:isSel||isDToday?700:400, color:isSel?"#fff":isDToday?C.accent:isWknd?"#F87171":C.text, textAlign:"center", marginBottom:3 }}>{day}</div>
-                        <div style={{ display:"flex", gap:2, flexWrap:"wrap", justifyContent:"center" }}>
-                          {dayEvs.slice(0, 3).map(ev => {
+                        <div style={{ fontSize:12, fontWeight:isSel||isDToday?700:400, color:isSel?"#fff":isDToday?C.accent:isWknd?"#F87171":C.text, textAlign:"center", marginBottom:4 }}>{day}</div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                          {dayEvs.slice(0, 2).map(ev => {
                             const cat = CATS[ev.category] || CATS.other;
-                            return <div key={ev.id} style={{ width:5, height:5, borderRadius:"50%", background:isSel?"rgba(255,255,255,.75)":cat.color }} />;
+                            return (
+                              <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:3 }}>
+                                <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"rgba(255,255,255,.85)":cat.color, flexShrink:0 }} />
+                                <span style={{ fontSize:9, color:isSel?"rgba(255,255,255,.92)":cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>
+                                  {ev.title}
+                                </span>
+                              </div>
+                            );
                           })}
-                          {dayEvs.length > 3 && <span style={{ fontSize:8, color:isSel?"rgba(255,255,255,.7)":C.muted }}>+{dayEvs.length-3}</span>}
+                          {dayEvs.length > 2 && (
+                            <span style={{ fontSize:8, color:isSel?"rgba(255,255,255,.6)":C.muted, paddingLeft:7 }}>+{dayEvs.length - 2} อื่นๆ</span>
+                          )}
                         </div>
                       </div>
                     );
