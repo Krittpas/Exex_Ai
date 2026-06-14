@@ -28,6 +28,10 @@ const PRIS = {
 
 const HOURS = Array.from({ length: 18 }, (_, i) => i + 6);
 
+// Returns YYYY-MM-DD in local time (avoids UTC offset shifting the date)
+const toLocalDateStr = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const inp  = (x={}) => ({ background:"rgba(15,23,42,.9)", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:14, color:C.text, fontFamily:"inherit", outline:"none", width:"100%", transition:"border-color .15s", ...x });
 const card = (x={}) => ({ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:16, ...x });
 const tag  = (color, bg) => ({ fontSize:11, padding:"2px 9px", borderRadius:999, fontWeight:500, color, background:bg });
@@ -79,13 +83,16 @@ const ConfirmModal = memo(({ item, onConfirm, onCancel }) => (
 /* ── AddEventForm — รองรับทั้ง add และ edit ── */
 const AddEventForm = memo(({ defaultDate, initialValues, onSubmit, onCancel }) => {
   const [ev, setEv] = useState(initialValues || { date:defaultDate||"", hour:"8", endHour:"9", title:"", category:"school" });
+  const [submitting, setSubmitting] = useState(false);
   const isEdit = !!initialValues;
   const timeOk = +ev.endHour > +ev.hour;
   const valid  = ev.title.trim().length > 0 && timeOk;
 
-  const handleSubmit = () => {
-    if (!valid) return;
-    onSubmit({ date:ev.date, hour:+ev.hour, endHour:+ev.endHour, title:ev.title.trim(), category:ev.category });
+  const handleSubmit = async () => {
+    if (!valid || submitting) return;
+    setSubmitting(true);
+    await onSubmit({ date:ev.date, hour:+ev.hour, endHour:+ev.endHour, title:ev.title.trim(), category:ev.category });
+    setSubmitting(false);
   };
 
   return (
@@ -125,8 +132,8 @@ const AddEventForm = memo(({ defaultDate, initialValues, onSubmit, onCancel }) =
           {Object.entries(CATS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary",{flex:1, opacity:valid?1:.5})} onClick={handleSubmit} disabled={!valid}>
-            {isEdit ? "บันทึก" : "เพิ่ม"}
+          <button className="bp" style={btn("primary",{flex:1, opacity:valid&&!submitting?1:.5})} onClick={handleSubmit} disabled={!valid||submitting}>
+            {submitting ? "กำลังบันทึก..." : isEdit ? "บันทึก" : "เพิ่ม"}
           </button>
           <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
         </div>
@@ -138,11 +145,14 @@ const AddEventForm = memo(({ defaultDate, initialValues, onSubmit, onCancel }) =
 /* ── AddTaskForm — รองรับทั้ง add และ edit ── */
 const AddTaskForm = memo(({ initialValues, onSubmit, onCancel }) => {
   const [tk, setTk] = useState(initialValues || { title:"", priority:"medium", category:"school", due:"" });
+  const [submitting, setSubmitting] = useState(false);
   const valid = tk.title.trim().length > 0;
 
-  const handleSubmit = () => {
-    if (!valid) return;
-    onSubmit({ title:tk.title.trim(), priority:tk.priority, category:tk.category, due:tk.due });
+  const handleSubmit = async () => {
+    if (!valid || submitting) return;
+    setSubmitting(true);
+    await onSubmit({ title:tk.title.trim(), priority:tk.priority, category:tk.category, due:tk.due });
+    setSubmitting(false);
   };
 
   return (
@@ -173,8 +183,8 @@ const AddTaskForm = memo(({ initialValues, onSubmit, onCancel }) => {
         </div>
         <input type="date" style={inp()} value={tk.due} onChange={e => setTk(p => ({ ...p, due:e.target.value }))} />
         <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary",{flex:1})} onClick={handleSubmit}>
-            {initialValues ? "บันทึก" : "เพิ่ม"}
+          <button className="bp" style={btn("primary",{flex:1, opacity:submitting?.5:1})} onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "กำลังบันทึก..." : initialValues ? "บันทึก" : "เพิ่ม"}
           </button>
           <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
         </div>
@@ -190,6 +200,36 @@ const EditOverlay = memo(({ children }) => (
   </div>
 ));
 
+/* ── StatRow — defined outside App to preserve component identity across re-renders ── */
+const StatRow = ({ items }) => (
+  <div style={{ display:"grid", gridTemplateColumns:`repeat(${items.length},1fr)`, gap:10, marginBottom:16 }}>
+    {items.map((st, i) => (
+      <div key={i} style={card()}>
+        <div style={{ fontFamily:C.fontMono, fontSize:st.mono?20:24, fontWeight:600, color:st.color }}>{st.val}</div>
+        <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{st.label}</div>
+      </div>
+    ))}
+  </div>
+);
+
+/* ── EvRow — defined outside App to preserve component identity across re-renders ── */
+const EvRow = ({ ev, compact, onEdit, onDelete }) => {
+  const cat = CATS[ev.category] || CATS.other;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:compact?6:8, padding:compact?"5px 9px":"7px 10px", borderRadius:compact?6:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:compact?0:5 }}>
+      {!compact && <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />}
+      <span style={{ flex:1, fontSize:compact?12.5:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
+      <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>
+        {String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}
+      </span>
+      <span style={{ cursor:"pointer", color:cat.color, opacity:.6, display:"flex" }} onClick={onEdit}>
+        <Pencil size={11} />
+      </span>
+      <span style={{ cursor:"pointer", fontSize:12, color:C.red, opacity:.7, marginLeft:2 }} onClick={onDelete}>×</span>
+    </div>
+  );
+};
+
 /* ════════════════════════════════════════════════════
    Main App
 ════════════════════════════════════════════════════ */
@@ -201,6 +241,7 @@ export default function App() {
   const [events, setEvents]         = useState([]);
   const [tasks, setTasks]           = useState([]);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
   const [showAddEv, setShowAddEv]   = useState(false);
   const [showAddTk, setShowAddTk]   = useState(false);
   const [editingEv, setEditingEv]   = useState(null);
@@ -209,9 +250,9 @@ export default function App() {
   const [toasts, setToasts]         = useState([]);
   const [tkFilter, setTkFilter]     = useState("all");
   const [taskSearch, setTaskSearch] = useState("");
-  const [date, setDate]             = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate]             = useState(() => toLocalDateStr());
   const [plannerMode, setPlannerMode] = useState(() => window.innerWidth < 700 ? "timeline" : "calendar");
-  const [calMonth, setCalMonth]     = useState(() => new Date().toISOString().slice(0, 7));
+  const [calMonth, setCalMonth]     = useState(() => toLocalDateStr().slice(0, 7));
 
   /* ── utils ── */
   const showToast = useCallback((msg, type="success") => {
@@ -221,9 +262,9 @@ export default function App() {
   }, []);
 
   const shiftDate = (delta) => {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + delta);
-    setDate(d.toISOString().split("T")[0]);
+    const [y, m, d] = date.split("-").map(Number);
+    const next = new Date(y, m - 1, d + delta);
+    setDate(toLocalDateStr(next));
   };
 
   const shiftCalMonth = (delta) => {
@@ -250,11 +291,12 @@ export default function App() {
     Promise.all([
       supabase.from("events").select("*"),
       supabase.from("tasks").select("*").order("created_at", { ascending:false }),
-    ]).then(([{ data:evData }, { data:tkData }]) => {
+    ]).then(([{ data:evData, error:e1 }, { data:tkData, error:e2 }]) => {
+      if (e1 || e2) { setLoadError(true); setLoading(false); return; }
       if (evData) setEvents(evData.map(toEv));
       if (tkData) setTasks(tkData.map(toTk));
       setLoading(false);
-    });
+    }).catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
   /* ── Supabase Realtime sync ── */
@@ -368,41 +410,9 @@ export default function App() {
     { id:"tasks",   icon:<CheckSquare size={20}/>, label:"Tasks",   badge:pendingCt },
   ];
 
-  /* ── StatRow ── */
-  const StatRow = ({ items }) => (
-    <div style={{ display:"grid", gridTemplateColumns:`repeat(${items.length},1fr)`, gap:10, marginBottom:16 }}>
-      {items.map((st, i) => (
-        <div key={i} style={card()}>
-          <div style={{ fontFamily:C.fontMono, fontSize:st.mono?20:24, fontWeight:600, color:st.color }}>{st.val}</div>
-          <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{st.label}</div>
-        </div>
-      ))}
-    </div>
-  );
-
-  /* ── Event row (reused in timeline + calendar panel) ── */
-  const EvRow = ({ ev, compact }) => {
-    const cat = CATS[ev.category] || CATS.other;
-    return (
-      <div style={{ display:"flex", alignItems:"center", gap:compact?6:8, padding:compact?"5px 9px":"7px 10px", borderRadius:compact?6:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:compact?0:5 }}>
-        {!compact && <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />}
-        <span style={{ flex:1, fontSize:compact?12.5:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
-        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>
-          {String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}
-        </span>
-        <span style={{ cursor:"pointer", color:cat.color, opacity:.6, display:"flex" }}
-          onClick={() => { setShowAddEv(false); setEditingEv(ev); }}>
-          <Pencil size={11} />
-        </span>
-        <span style={{ cursor:"pointer", fontSize:12, color:C.red, opacity:.7, marginLeft:2 }}
-          onClick={() => requestDelete("event", ev.id, ev.title)}>×</span>
-      </div>
-    );
-  };
-
   /* ── PlannerView ── */
   const PlannerView = () => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = toLocalDateStr();
     const isToday  = date === todayStr;
     const dayEvs   = events.filter(e => e.date === date);
 
@@ -415,6 +425,14 @@ export default function App() {
     const cells     = [...Array(firstDow).fill(null), ...Array.from({ length:daysInMon }, (_,i)=>i+1)];
     while (cells.length % 7 !== 0) cells.push(null);
     const monthLabel = new Date(cy, cm-1, 1).toLocaleDateString("th-TH", { month:"long", year:"numeric" });
+
+    if (loadError) return (
+      <div style={{ textAlign:"center", padding:60, color:C.red, fontSize:13 }}>
+        <div style={{ fontSize:24, marginBottom:8 }}>⚠</div>
+        <div>โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองใหม่</div>
+        <button className="bp" style={btn("primary",{marginTop:14})} onClick={() => window.location.reload()}>โหลดใหม่</button>
+      </div>
+    );
 
     if (loading) return <div style={{ textAlign:"center", padding:60, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>;
 
@@ -468,7 +486,12 @@ export default function App() {
                     <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
                     <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
                       {isCur && evs.length===0 && <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>}
-                      {evs.map(ev => <EvRow key={ev.id} ev={ev} compact />)}
+                      {evs.map(ev => (
+                        <EvRow key={ev.id} ev={ev} compact
+                          onEdit={() => { setShowAddEv(false); setEditingEv(ev); }}
+                          onDelete={() => requestDelete("event", ev.id, ev.title)}
+                        />
+                      ))}
                     </div>
                   </div>
                 );
@@ -528,7 +551,6 @@ export default function App() {
 
             {/* Selected day panel */}
             {(() => {
-              const todayStr2 = new Date().toISOString().split("T")[0];
               const selEvs = events.filter(e => e.date===date).sort((a,b)=>a.hour-b.hour);
               return (
                 <div style={{ marginTop:12 }}>
@@ -543,7 +565,12 @@ export default function App() {
                   {selEvs.length===0 && !showAddEv && (
                     <div style={{ textAlign:"center", padding:"16px 0", color:C.dim, fontSize:12 }}>ยังไม่มีกิจกรรม — กดวันในปฏิทินเพื่อดูตาราง</div>
                   )}
-                  {selEvs.map(ev => <EvRow key={ev.id} ev={ev} />)}
+                  {selEvs.map(ev => (
+                    <EvRow key={ev.id} ev={ev}
+                      onEdit={() => { setShowAddEv(false); setEditingEv(ev); }}
+                      onDelete={() => requestDelete("event", ev.id, ev.title)}
+                    />
+                  ))}
                 </div>
               );
             })()}
@@ -585,7 +612,13 @@ export default function App() {
 
       {showAddTk && <AddTaskForm onSubmit={addTask} onCancel={cancelAddTk} />}
 
-      {loading ? (
+      {loadError ? (
+        <div style={{ textAlign:"center", padding:40, color:C.red, fontSize:13 }}>
+          <div style={{ fontSize:24, marginBottom:8 }}>⚠</div>
+          <div>โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองใหม่</div>
+          <button className="bp" style={btn("primary",{marginTop:14})} onClick={() => window.location.reload()}>โหลดใหม่</button>
+        </div>
+      ) : loading ? (
         <div style={{ textAlign:"center", padding:40, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>
       ) : filtered.length===0 ? (
         <div style={{ textAlign:"center", padding:40, color:C.dim }}>
