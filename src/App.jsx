@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo } from "react";
-import { Calendar, CheckSquare, Plus, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, CheckSquare, Plus, Trash2, Check, ChevronLeft, ChevronRight, Search, Pencil } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 const C = {
@@ -41,30 +41,65 @@ const btn  = (v="primary", x={}) => ({
     : {}), ...x
 });
 
-/* map DB row → JS object */
 const toEv = r => ({ id:r.id, date:r.date, hour:r.hour, endHour:r.end_hour, title:r.title, category:r.category });
-const toTk = r => ({ id:r.id, title:r.title, priority:r.priority, category:r.category, due:r.due, completed:r.completed, createdAt:r.created_at });
+const toTk = r => ({ id:r.id, title:r.title, priority:r.priority, category:r.category, due:r.due||"", completed:r.completed, createdAt:r.created_at });
 
-/* ── Module-level forms — ไม่ถูก re-render จาก timer ── */
+/* ── Toast notifications ── */
+const Toasts = memo(({ items }) => {
+  if (!items.length) return null;
+  return (
+    <div style={{ position:"fixed", bottom:88, left:"50%", transform:"translateX(-50%)", zIndex:9999, display:"flex", flexDirection:"column", gap:8, alignItems:"center", pointerEvents:"none" }}>
+      {items.map(t => (
+        <div key={t.id} style={{
+          padding:"10px 20px", borderRadius:10, fontSize:13, fontWeight:500,
+          background: t.type==="error" ? "rgba(248,113,113,.18)" : "rgba(52,211,153,.18)",
+          border:`1px solid ${t.type==="error" ? "rgba(248,113,113,.5)" : "rgba(52,211,153,.5)"}`,
+          color: t.type==="error" ? "#F87171" : "#34D399",
+          backdropFilter:"blur(12px)", whiteSpace:"nowrap", boxShadow:"0 4px 20px rgba(0,0,0,.4)",
+        }}>{t.msg}</div>
+      ))}
+    </div>
+  );
+});
 
-const AddEventForm = memo(({ defaultDate, onAdd, onCancel }) => {
-  const [ev, setEv] = useState({ date: defaultDate, hour:"8", endHour:"9", title:"", category:"school" });
+/* ── Confirm delete dialog ── */
+const ConfirmModal = memo(({ item, onConfirm, onCancel }) => (
+  <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9998, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+    <div style={{ ...card(), maxWidth:300, width:"100%" }}>
+      <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>ยืนยันการลบ</div>
+      <div style={{ fontSize:13, color:C.muted, marginBottom:18, wordBreak:"break-word" }}>"{item.label}"</div>
+      <div style={{ display:"flex", gap:8 }}>
+        <button style={btn("danger",{flex:1})} onClick={onConfirm}>ลบ</button>
+        <button style={btn("ghost",{flex:1})} onClick={onCancel}>ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+));
 
-  const handleAdd = () => {
-    if (!ev.title.trim()) return;
-    onAdd({ date:ev.date, hour:+ev.hour, endHour:+ev.endHour, title:ev.title.trim(), category:ev.category });
+/* ── AddEventForm — รองรับทั้ง add และ edit ── */
+const AddEventForm = memo(({ defaultDate, initialValues, onSubmit, onCancel }) => {
+  const [ev, setEv] = useState(initialValues || { date:defaultDate||"", hour:"8", endHour:"9", title:"", category:"school" });
+  const isEdit = !!initialValues;
+  const timeOk = +ev.endHour > +ev.hour;
+  const valid  = ev.title.trim().length > 0 && timeOk;
+
+  const handleSubmit = () => {
+    if (!valid) return;
+    onSubmit({ date:ev.date, hour:+ev.hour, endHour:+ev.endHour, title:ev.title.trim(), category:ev.category });
   };
 
   return (
     <div style={{ ...card(), marginBottom:16 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มกิจกรรม</span>
+        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>
+          {isEdit ? "แก้ไขกิจกรรม" : "เพิ่มกิจกรรม"}
+        </span>
         <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={onCancel}>×</span>
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
         <input style={inp()} placeholder="ชื่อกิจกรรม..." value={ev.title}
           onChange={e => setEv(p => ({ ...p, title:e.target.value }))}
-          onKeyDown={e => e.key === "Enter" && handleAdd()} autoFocus />
+          onKeyDown={e => e.key==="Enter" && handleSubmit()} autoFocus />
         <div>
           <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>วันที่</div>
           <input type="date" style={inp()} value={ev.date} onChange={e => setEv(p => ({ ...p, date:e.target.value }))} />
@@ -83,11 +118,16 @@ const AddEventForm = memo(({ defaultDate, onAdd, onCancel }) => {
             </select>
           </div>
         </div>
+        {!timeOk && ev.title && (
+          <div style={{ fontSize:11, color:C.red }}>⚠ เวลาสิ้นสุดต้องมากกว่าเวลาเริ่ม</div>
+        )}
         <select style={inp()} value={ev.category} onChange={e => setEv(p => ({ ...p, category:e.target.value }))}>
-          {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          {Object.entries(CATS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary", { flex:1 })} onClick={handleAdd}>เพิ่ม</button>
+          <button className="bp" style={btn("primary",{flex:1, opacity:valid?1:.5})} onClick={handleSubmit} disabled={!valid}>
+            {isEdit ? "บันทึก" : "เพิ่ม"}
+          </button>
           <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
         </div>
       </div>
@@ -95,41 +135,47 @@ const AddEventForm = memo(({ defaultDate, onAdd, onCancel }) => {
   );
 });
 
-const AddTaskForm = memo(({ onAdd, onCancel }) => {
-  const [tk, setTk] = useState({ title:"", priority:"medium", category:"school", due:"" });
+/* ── AddTaskForm — รองรับทั้ง add และ edit ── */
+const AddTaskForm = memo(({ initialValues, onSubmit, onCancel }) => {
+  const [tk, setTk] = useState(initialValues || { title:"", priority:"medium", category:"school", due:"" });
+  const valid = tk.title.trim().length > 0;
 
-  const handleAdd = () => {
-    if (!tk.title.trim()) return;
-    onAdd({ title:tk.title.trim(), priority:tk.priority, category:tk.category, due:tk.due });
+  const handleSubmit = () => {
+    if (!valid) return;
+    onSubmit({ title:tk.title.trim(), priority:tk.priority, category:tk.category, due:tk.due });
   };
 
   return (
     <div style={{ ...card(), marginBottom:14 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>เพิ่มงาน</span>
+        <span style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>
+          {initialValues ? "แก้ไขงาน" : "เพิ่มงาน"}
+        </span>
         <span style={{ cursor:"pointer", color:C.muted, fontSize:18, lineHeight:1 }} onClick={onCancel}>×</span>
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
         <input style={inp()} placeholder="ชื่องาน..." value={tk.title}
           onChange={e => setTk(p => ({ ...p, title:e.target.value }))}
-          onKeyDown={e => e.key === "Enter" && handleAdd()} autoFocus />
+          onKeyDown={e => e.key==="Enter" && handleSubmit()} autoFocus />
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
           <div>
             <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>ความสำคัญ</div>
             <select style={inp()} value={tk.priority} onChange={e => setTk(p => ({ ...p, priority:e.target.value }))}>
-              {Object.entries(PRIS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              {Object.entries(PRIS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
           <div>
             <div style={{ fontSize:10, color:C.muted, marginBottom:3 }}>หมวดหมู่</div>
             <select style={inp()} value={tk.category} onChange={e => setTk(p => ({ ...p, category:e.target.value }))}>
-              {Object.entries(CATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              {Object.entries(CATS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
         </div>
         <input type="date" style={inp()} value={tk.due} onChange={e => setTk(p => ({ ...p, due:e.target.value }))} />
         <div style={{ display:"flex", gap:8 }}>
-          <button className="bp" style={btn("primary", { flex:1 })} onClick={handleAdd}>เพิ่ม</button>
+          <button className="bp" style={btn("primary",{flex:1})} onClick={handleSubmit}>
+            {initialValues ? "บันทึก" : "เพิ่ม"}
+          </button>
           <button className="bg" style={btn("ghost")} onClick={onCancel}>ยกเลิก</button>
         </div>
       </div>
@@ -137,21 +183,42 @@ const AddTaskForm = memo(({ onAdd, onCancel }) => {
   );
 });
 
-/* ── Main App ── */
+/* ── Edit modal overlay ── */
+const EditOverlay = memo(({ children }) => (
+  <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.65)", zIndex:9997, display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"24px 16px", overflowY:"auto" }}>
+    <div style={{ width:"100%", maxWidth:420, paddingTop:20 }}>{children}</div>
+  </div>
+));
+
+/* ════════════════════════════════════════════════════
+   Main App
+════════════════════════════════════════════════════ */
 
 export default function App() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 700);
-  const [view, setView]         = useState("planner");
-  const [now,  setNow]          = useState(new Date());
-  const [events, setEvents]     = useState([]);
-  const [tasks,  setTasks]      = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [showAddEv, setShowAddEv] = useState(false);
-  const [showAddTk, setShowAddTk] = useState(false);
-  const [tkFilter, setTkFilter] = useState("all");
-  const [date, setDate]               = useState(() => new Date().toISOString().split("T")[0]);
-  const [plannerMode, setPlannerMode] = useState("calendar");
-  const [calMonth, setCalMonth]       = useState(() => new Date().toISOString().slice(0, 7));
+  const [isMobile, setIsMobile]     = useState(window.innerWidth < 700);
+  const [view, setView]             = useState("planner");
+  const [now, setNow]               = useState(new Date());
+  const [events, setEvents]         = useState([]);
+  const [tasks, setTasks]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [showAddEv, setShowAddEv]   = useState(false);
+  const [showAddTk, setShowAddTk]   = useState(false);
+  const [editingEv, setEditingEv]   = useState(null);
+  const [editingTk, setEditingTk]   = useState(null);
+  const [pendingDel, setPendingDel] = useState(null); // {type,id,label}
+  const [toasts, setToasts]         = useState([]);
+  const [tkFilter, setTkFilter]     = useState("all");
+  const [taskSearch, setTaskSearch] = useState("");
+  const [date, setDate]             = useState(() => new Date().toISOString().split("T")[0]);
+  const [plannerMode, setPlannerMode] = useState(() => window.innerWidth < 700 ? "timeline" : "calendar");
+  const [calMonth, setCalMonth]     = useState(() => new Date().toISOString().slice(0, 7));
+
+  /* ── utils ── */
+  const showToast = useCallback((msg, type="success") => {
+    const id = Date.now().toString() + Math.random();
+    setToasts(prev => [...prev, {id, msg, type}]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  }, []);
 
   const shiftDate = (delta) => {
     const d = new Date(date + "T00:00:00");
@@ -165,68 +232,131 @@ export default function App() {
     setCalMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
 
+  /* ── resize ── */
   useEffect(() => {
-    const handle = () => setIsMobile(window.innerWidth < 700);
-    window.addEventListener("resize", handle);
-    return () => window.removeEventListener("resize", handle);
+    const h = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
   }, []);
 
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  /* ── clock (ทุก 10 วินาที พอแล้วสำหรับ HH:MM) ── */
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 10000);
+    return () => clearInterval(t);
+  }, []);
 
-  /* โหลดข้อมูลจาก Supabase */
+  /* ── initial load ── */
   useEffect(() => {
     Promise.all([
       supabase.from("events").select("*"),
-      supabase.from("tasks").select("*").order("created_at", { ascending: false }),
-    ]).then(([{ data: evData }, { data: tkData }]) => {
+      supabase.from("tasks").select("*").order("created_at", { ascending:false }),
+    ]).then(([{ data:evData }, { data:tkData }]) => {
       if (evData) setEvents(evData.map(toEv));
       if (tkData) setTasks(tkData.map(toTk));
       setLoading(false);
     });
   }, []);
 
-  /* Events CRUD */
+  /* ── Supabase Realtime sync ── */
+  useEffect(() => {
+    const ch = supabase.channel("db-realtime")
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"events" }, ({ new:row }) => {
+        setEvents(prev => prev.find(e => e.id===row.id) ? prev : [...prev, toEv(row)].sort((a,b)=>a.hour-b.hour));
+      })
+      .on("postgres_changes", { event:"UPDATE", schema:"public", table:"events" }, ({ new:row }) => {
+        setEvents(prev => prev.map(e => e.id===row.id ? toEv(row) : e).sort((a,b)=>a.hour-b.hour));
+      })
+      .on("postgres_changes", { event:"DELETE", schema:"public", table:"events" }, ({ old:row }) => {
+        setEvents(prev => prev.filter(e => e.id!==row.id));
+      })
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"tasks" }, ({ new:row }) => {
+        setTasks(prev => prev.find(t => t.id===row.id) ? prev : [toTk(row), ...prev]);
+      })
+      .on("postgres_changes", { event:"UPDATE", schema:"public", table:"tasks" }, ({ new:row }) => {
+        setTasks(prev => prev.map(t => t.id===row.id ? toTk(row) : t));
+      })
+      .on("postgres_changes", { event:"DELETE", schema:"public", table:"tasks" }, ({ old:row }) => {
+        setTasks(prev => prev.filter(t => t.id!==row.id));
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  /* ── Events CRUD ── */
   const addEvent = useCallback(async (data) => {
-    const row = { id: Date.now().toString(), date: data.date, hour: data.hour, end_hour: data.endHour, title: data.title, category: data.category };
-    const { data: inserted } = await supabase.from("events").insert([row]).select();
-    if (inserted) setEvents(prev => [...prev, toEv(inserted[0])].sort((a, b) => a.hour - b.hour));
+    const row = { id:Date.now().toString(), date:data.date, hour:data.hour, end_hour:data.endHour, title:data.title, category:data.category };
+    const { data:ins, error } = await supabase.from("events").insert([row]).select();
+    if (error || !ins) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+    setEvents(prev => prev.find(e=>e.id===ins[0].id) ? prev : [...prev, toEv(ins[0])].sort((a,b)=>a.hour-b.hour));
+    showToast("เพิ่มกิจกรรมสำเร็จ ✓");
     setShowAddEv(false);
-  }, []);
+  }, [showToast]);
 
-  const deleteEvent = useCallback(async (id) => {
-    await supabase.from("events").delete().eq("id", id);
-    setEvents(prev => prev.filter(e => e.id !== id));
-  }, []);
+  const updateEvent = useCallback(async (id, data) => {
+    const { error } = await supabase.from("events").update({ date:data.date, hour:data.hour, end_hour:data.endHour, title:data.title, category:data.category }).eq("id", id);
+    if (error) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+    setEvents(prev => prev.map(e => e.id===id ? {...e,...data} : e).sort((a,b)=>a.hour-b.hour));
+    setEditingEv(null);
+    showToast("แก้ไขสำเร็จ ✓");
+  }, [showToast]);
 
-  /* Tasks CRUD */
+  /* ── Tasks CRUD ── */
   const addTask = useCallback(async (data) => {
-    const row = { id: Date.now().toString(), title: data.title, priority: data.priority, category: data.category, due: data.due || null, completed: false, created_at: Date.now() };
-    const { data: inserted } = await supabase.from("tasks").insert([row]).select();
-    if (inserted) setTasks(prev => [toTk(inserted[0]), ...prev]);
+    const row = { id:Date.now().toString(), title:data.title, priority:data.priority, category:data.category, due:data.due||null, completed:false, created_at:Date.now() };
+    const { data:ins, error } = await supabase.from("tasks").insert([row]).select();
+    if (error || !ins) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+    setTasks(prev => prev.find(t=>t.id===ins[0].id) ? prev : [toTk(ins[0]), ...prev]);
+    showToast("เพิ่มงานสำเร็จ ✓");
     setShowAddTk(false);
-  }, []);
+  }, [showToast]);
 
-  const deleteTask = useCallback(async (id) => {
-    await supabase.from("tasks").delete().eq("id", id);
-    setTasks(prev => prev.filter(t => t.id !== id));
-  }, []);
+  const updateTask = useCallback(async (id, data) => {
+    const { error } = await supabase.from("tasks").update({ title:data.title, priority:data.priority, category:data.category, due:data.due||null }).eq("id", id);
+    if (error) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+    setTasks(prev => prev.map(t => t.id===id ? {...t,...data} : t));
+    setEditingTk(null);
+    showToast("แก้ไขสำเร็จ ✓");
+  }, [showToast]);
 
   const toggleTask = useCallback(async (id, completed) => {
-    await supabase.from("tasks").update({ completed: !completed }).eq("id", id);
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !completed } : t));
-  }, []);
+    const { error } = await supabase.from("tasks").update({ completed:!completed }).eq("id", id);
+    if (error) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+    setTasks(prev => prev.map(t => t.id===id ? {...t, completed:!completed} : t));
+  }, [showToast]);
+
+  /* ── Delete (with confirm) ── */
+  const requestDelete = (type, id, label) => setPendingDel({type, id, label});
+
+  const confirmDelete = async () => {
+    if (!pendingDel) return;
+    const { type, id } = pendingDel;
+    setPendingDel(null);
+    if (type === "event") {
+      const { error } = await supabase.from("events").delete().eq("id", id);
+      if (error) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+      setEvents(prev => prev.filter(e => e.id !== id));
+      showToast("ลบกิจกรรมแล้ว");
+    } else {
+      const { error } = await supabase.from("tasks").delete().eq("id", id);
+      if (error) { showToast("เกิดข้อผิดพลาด ✗", "error"); return; }
+      setTasks(prev => prev.filter(t => t.id !== id));
+      showToast("ลบงานแล้ว");
+    }
+  };
 
   const cancelAddEv = useCallback(() => setShowAddEv(false), []);
   const cancelAddTk = useCallback(() => setShowAddTk(false), []);
 
+  /* ── derived ── */
   const curH      = now.getHours();
   const doneCt    = tasks.filter(t => t.completed).length;
   const pendingCt = tasks.filter(t => !t.completed).length;
   const pct       = tasks.length ? Math.round((doneCt / tasks.length) * 100) : 0;
-  const fmtT      = d => d.toLocaleTimeString("th-TH", { hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false });
+  const fmtT      = d => d.toLocaleTimeString("th-TH", { hour:"2-digit", minute:"2-digit", hour12:false });
   const fmtD      = d => d.toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" });
 
   const filtered = tasks.filter(t => {
+    if (taskSearch && !t.title.toLowerCase().includes(taskSearch.toLowerCase())) return false;
     if (tkFilter === "pending") return !t.completed;
     if (tkFilter === "done")    return  t.completed;
     if (Object.keys(CATS).includes(tkFilter)) return t.category === tkFilter;
@@ -238,7 +368,7 @@ export default function App() {
     { id:"tasks",   icon:<CheckSquare size={20}/>, label:"Tasks",   badge:pendingCt },
   ];
 
-  /* ── STAT ROW ── */
+  /* ── StatRow ── */
   const StatRow = ({ items }) => (
     <div style={{ display:"grid", gridTemplateColumns:`repeat(${items.length},1fr)`, gap:10, marginBottom:16 }}>
       {items.map((st, i) => (
@@ -250,46 +380,65 @@ export default function App() {
     </div>
   );
 
-  /* ── PLANNER VIEW ── */
+  /* ── Event row (reused in timeline + calendar panel) ── */
+  const EvRow = ({ ev, compact }) => {
+    const cat = CATS[ev.category] || CATS.other;
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:compact?6:8, padding:compact?"5px 9px":"7px 10px", borderRadius:compact?6:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:compact?0:5 }}>
+        {!compact && <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />}
+        <span style={{ flex:1, fontSize:compact?12.5:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
+        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>
+          {String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}
+        </span>
+        <span style={{ cursor:"pointer", color:cat.color, opacity:.6, display:"flex" }}
+          onClick={() => { setShowAddEv(false); setEditingEv(ev); }}>
+          <Pencil size={11} />
+        </span>
+        <span style={{ cursor:"pointer", fontSize:12, color:C.red, opacity:.7, marginLeft:2 }}
+          onClick={() => requestDelete("event", ev.id, ev.title)}>×</span>
+      </div>
+    );
+  };
+
+  /* ── PlannerView ── */
   const PlannerView = () => {
     const todayStr = new Date().toISOString().split("T")[0];
     const isToday  = date === todayStr;
     const dayEvs   = events.filter(e => e.date === date);
 
     const arrowBtn = { display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, cursor:"pointer", flexShrink:0, transition:"all .15s" };
-    const modeTab  = (active) => ({ padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer", border:"none", fontFamily:"inherit", transition:"all .15s", background:active ? C.accent : "transparent", color:active ? "#fff" : C.muted });
+    const modeTab  = (active) => ({ padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer", border:"none", fontFamily:"inherit", transition:"all .15s", background:active?C.accent:"transparent", color:active?"#fff":C.muted });
 
     const [cy, cm] = calMonth.split("-").map(Number);
-    const firstDow  = (new Date(cy, cm - 1, 1).getDay() + 6) % 7;
+    const firstDow  = (new Date(cy, cm-1, 1).getDay() + 6) % 7;
     const daysInMon = new Date(cy, cm, 0).getDate();
-    const cells     = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMon }, (_, i) => i + 1)];
+    const cells     = [...Array(firstDow).fill(null), ...Array.from({ length:daysInMon }, (_,i)=>i+1)];
     while (cells.length % 7 !== 0) cells.push(null);
-    const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString("th-TH", { month:"long", year:"numeric" });
+    const monthLabel = new Date(cy, cm-1, 1).toLocaleDateString("th-TH", { month:"long", year:"numeric" });
 
-    if (loading) return (
-      <div style={{ textAlign:"center", padding:60, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>
-    );
+    if (loading) return <div style={{ textAlign:"center", padding:60, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>;
 
     return (
       <div>
         {/* Mode toggle */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
           <div style={{ display:"flex", gap:3, background:"rgba(99,102,241,.07)", padding:3, borderRadius:8, border:`1px solid ${C.border}` }}>
-            <button style={modeTab(plannerMode === "timeline")} onClick={() => setPlannerMode("timeline")}>📅 ตาราง</button>
-            <button style={modeTab(plannerMode === "calendar")} onClick={() => { setPlannerMode("calendar"); setCalMonth(date.slice(0, 7)); }}>🗓 ปฏิทิน</button>
+            <button style={modeTab(plannerMode==="timeline")} onClick={() => setPlannerMode("timeline")}>📅 ตาราง</button>
+            <button style={modeTab(plannerMode==="calendar")} onClick={() => { setPlannerMode("calendar"); setCalMonth(date.slice(0,7)); }}>🗓 ปฏิทิน</button>
           </div>
           {!isToday && (
-            <button className="bp" style={btn("primary", { fontSize:11, padding:"5px 12px" })} onClick={() => setDate(todayStr)}>กลับวันนี้</button>
+            <button className="bp" style={btn("primary",{fontSize:11, padding:"5px 12px"})} onClick={() => setDate(todayStr)}>กลับวันนี้</button>
           )}
         </div>
 
         {plannerMode === "timeline" ? (
           <>
+            {/* Date nav */}
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
               <button className="nav-arrow" style={arrowBtn} onClick={() => shiftDate(-1)}><ChevronLeft size={16}/></button>
               <div style={{ flex:1, textAlign:"center" }}>
                 <div style={{ fontSize:14, fontWeight:600, color:C.text }}>
-                  {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
+                  {new Date(date+"T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
                 </div>
                 {isToday && <span style={{ fontSize:10, padding:"1px 8px", borderRadius:999, background:C.accentDim, color:C.accent, fontWeight:600 }}>วันนี้</span>}
               </div>
@@ -298,18 +447,18 @@ export default function App() {
 
             <StatRow items={[
               { label:"กิจกรรม", val:dayEvs.length, color:C.accent },
-              { label:"เวลาตอนนี้", val:`${String(curH).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`, color:C.cyan, mono:true },
-              { label:"งานค้าง", val:pendingCt, color:pendingCt > 0 ? C.red : C.green },
+              { label:"เวลาตอนนี้", val:fmtT(now), color:C.cyan, mono:true },
+              { label:"งานค้าง", val:pendingCt, color:pendingCt>0?C.red:C.green },
             ]} />
 
-            {showAddEv && <AddEventForm defaultDate={date} onAdd={addEvent} onCancel={cancelAddEv} />}
+            {showAddEv && <AddEventForm defaultDate={date} onSubmit={addEvent} onCancel={cancelAddEv} />}
 
             <div style={card()}>
               <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>
-                ตารางเวลา — {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
+                ตารางเวลา — {new Date(date+"T00:00:00").toLocaleDateString("th-TH", { weekday:"short", day:"numeric", month:"short" })}
               </div>
               {HOURS.map(h => {
-                const evs   = dayEvs.filter(e => h >= e.hour && h < e.endHour);
+                const evs   = dayEvs.filter(e => h>=e.hour && h<e.endHour);
                 const isCur = isToday && h === curH;
                 return (
                   <div key={h} style={{ display:"flex", gap:8, minHeight:48, borderBottom:`1px solid rgba(99,102,241,.05)`, padding:"3px 0", alignItems:"flex-start" }}>
@@ -318,17 +467,8 @@ export default function App() {
                     </div>
                     <div style={{ width:1, background:isCur?"rgba(99,102,241,.4)":"rgba(99,102,241,.08)", alignSelf:"stretch" }} />
                     <div style={{ flex:1, display:"flex", flexDirection:"column", gap:3, padding:"2px 0" }}>
-                      {isCur && evs.length === 0 && <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>}
-                      {evs.map(ev => {
-                        const cat = CATS[ev.category] || CATS.other;
-                        return (
-                          <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"5px 9px", borderRadius:6, background:cat.bg, borderLeft:`3px solid ${cat.color}` }}>
-                            <span style={{ flex:1, fontSize:12.5, fontWeight:500, color:cat.color }}>{ev.title}</span>
-                            <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.5 }}>{String(ev.hour).padStart(2,"0")}–{String(ev.endHour).padStart(2,"0")}</span>
-                            <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.7 }} onClick={() => deleteEvent(ev.id)}>×</span>
-                          </div>
-                        );
-                      })}
+                      {isCur && evs.length===0 && <div style={{ fontSize:10, color:C.dim, fontStyle:"italic", paddingTop:5 }}>← ตอนนี้</div>}
+                      {evs.map(ev => <EvRow key={ev.id} ev={ev} compact />)}
                     </div>
                   </div>
                 );
@@ -336,6 +476,7 @@ export default function App() {
             </div>
           </>
         ) : (
+          /* ── Calendar view ── */
           <div>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
               <button className="nav-arrow" style={arrowBtn} onClick={() => shiftCalMonth(-1)}><ChevronLeft size={16}/></button>
@@ -343,45 +484,40 @@ export default function App() {
               <button className="nav-arrow" style={arrowBtn} onClick={() => shiftCalMonth(1)}><ChevronRight size={16}/></button>
             </div>
 
-            <div style={card({ padding:12 })}>
+            <div style={card({padding:12})}>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:6 }}>
-                {["จ","อ","พ","พฤ","ศ","ส","อา"].map((d, i) => (
-                  <div key={i} style={{ textAlign:"center", fontSize:10, fontWeight:600, color:i >= 5 ? "#F87171" : C.muted, padding:"4px 0" }}>{d}</div>
+                {["จ","อ","พ","พฤ","ศ","ส","อา"].map((d,i) => (
+                  <div key={i} style={{ textAlign:"center", fontSize:10, fontWeight:600, color:i>=5?"#F87171":C.muted, padding:"4px 0" }}>{d}</div>
                 ))}
               </div>
-              {Array.from({ length: cells.length / 7 }, (_, wi) => (
+              {Array.from({ length:cells.length/7 }, (_,wi) => (
                 <div key={wi} style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
-                  {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
-                    if (!day) return <div key={di} style={{ minHeight:52 }} />;
+                  {cells.slice(wi*7, wi*7+7).map((day,di) => {
+                    if (!day) return <div key={di} style={{ minHeight:68 }} />;
                     const dayStr   = `${cy}-${String(cm).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-                    const dayEvs   = events.filter(e => e.date === dayStr);
-                    const isSel    = dayStr === date;
-                    const isDToday = dayStr === todayStr;
-                    const isWknd   = di >= 5;
+                    const dayEvs   = events.filter(e => e.date===dayStr);
+                    const isSel    = dayStr===date;
+                    const isDToday = dayStr===todayStr;
+                    const isWknd   = di>=5;
                     return (
                       <div key={di}
                         onClick={() => { setDate(dayStr); setCalMonth(dayStr.slice(0,7)); setPlannerMode("timeline"); }}
-                        style={{ minHeight:68, borderRadius:7, padding:"5px 5px 4px", cursor:"pointer", transition:"all .15s",
-                          background: isSel ? C.accent : isDToday ? "rgba(99,102,241,.12)" : "rgba(255,255,255,.02)",
-                          border:`1px solid ${isSel ? C.accent : isDToday ? "rgba(99,102,241,.4)" : C.border}`,
-                          overflow:"hidden",
+                        style={{ minHeight:68, borderRadius:7, padding:"5px 5px 4px", cursor:"pointer", transition:"all .15s", overflow:"hidden",
+                          background:isSel?C.accent:isDToday?"rgba(99,102,241,.12)":"rgba(255,255,255,.02)",
+                          border:`1px solid ${isSel?C.accent:isDToday?"rgba(99,102,241,.4)":C.border}`,
                         }}>
                         <div style={{ fontSize:12, fontWeight:isSel||isDToday?700:400, color:isSel?"#fff":isDToday?C.accent:isWknd?"#F87171":C.text, textAlign:"center", marginBottom:4 }}>{day}</div>
                         <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                          {dayEvs.slice(0, 2).map(ev => {
-                            const cat = CATS[ev.category] || CATS.other;
+                          {dayEvs.slice(0,2).map(ev => {
+                            const cat = CATS[ev.category]||CATS.other;
                             return (
                               <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:3 }}>
                                 <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"rgba(255,255,255,.85)":cat.color, flexShrink:0 }} />
-                                <span style={{ fontSize:9, color:isSel?"rgba(255,255,255,.92)":cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>
-                                  {ev.title}
-                                </span>
+                                <span style={{ fontSize:9, color:isSel?"rgba(255,255,255,.92)":cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>{ev.title}</span>
                               </div>
                             );
                           })}
-                          {dayEvs.length > 2 && (
-                            <span style={{ fontSize:8, color:isSel?"rgba(255,255,255,.6)":C.muted, paddingLeft:7 }}>+{dayEvs.length - 2} อื่นๆ</span>
-                          )}
+                          {dayEvs.length>2 && <span style={{ fontSize:8, color:isSel?"rgba(255,255,255,.6)":C.muted, paddingLeft:7 }}>+{dayEvs.length-2} อื่นๆ</span>}
                         </div>
                       </div>
                     );
@@ -392,31 +528,22 @@ export default function App() {
 
             {/* Selected day panel */}
             {(() => {
-              const selEvs = events.filter(e => e.date === date).sort((a, b) => a.hour - b.hour);
+              const todayStr2 = new Date().toISOString().split("T")[0];
+              const selEvs = events.filter(e => e.date===date).sort((a,b)=>a.hour-b.hour);
               return (
                 <div style={{ marginTop:12 }}>
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                     <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:".07em" }}>
-                      {new Date(date + "T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long" })}
+                      {new Date(date+"T00:00:00").toLocaleDateString("th-TH", { weekday:"long", day:"numeric", month:"long" })}
                     </div>
-                    <button className="bp" style={btn("primary", { fontSize:11, padding:"4px 10px" })}
-                      onClick={() => setShowAddEv(p => !p)}>+ เพิ่ม</button>
+                    <button className="bp" style={btn("primary",{fontSize:11, padding:"4px 10px"})}
+                      onClick={() => setShowAddEv(p=>!p)}>+ เพิ่ม</button>
                   </div>
-                  {showAddEv && <AddEventForm defaultDate={date} onAdd={addEvent} onCancel={cancelAddEv} />}
-                  {selEvs.length === 0 && !showAddEv && (
+                  {showAddEv && <AddEventForm defaultDate={date} onSubmit={addEvent} onCancel={cancelAddEv} />}
+                  {selEvs.length===0 && !showAddEv && (
                     <div style={{ textAlign:"center", padding:"16px 0", color:C.dim, fontSize:12 }}>ยังไม่มีกิจกรรม — กดวันในปฏิทินเพื่อดูตาราง</div>
                   )}
-                  {selEvs.map(ev => {
-                    const cat = CATS[ev.category] || CATS.other;
-                    return (
-                      <div key={ev.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:7, background:cat.bg, borderLeft:`3px solid ${cat.color}`, marginBottom:5 }}>
-                        <div style={{ width:7, height:7, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
-                        <span style={{ flex:1, fontSize:13, fontWeight:500, color:cat.color }}>{ev.title}</span>
-                        <span style={{ fontFamily:C.fontMono, fontSize:10, color:cat.color, opacity:.6 }}>{String(ev.hour).padStart(2,"0")}:00–{String(ev.endHour).padStart(2,"0")}:00</span>
-                        <span style={{ cursor:"pointer", fontSize:11, color:C.red, opacity:.6 }} onClick={() => deleteEvent(ev.id)}>×</span>
-                      </div>
-                    );
-                  })}
+                  {selEvs.map(ev => <EvRow key={ev.id} ev={ev} />)}
                 </div>
               );
             })()}
@@ -426,36 +553,50 @@ export default function App() {
     );
   };
 
-  /* ── TASKS VIEW ── */
+  /* ── TasksView ── */
   const TasksView = () => (
     <div>
+      {/* Search */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, background:"rgba(15,23,42,.9)", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px" }}>
+        <Search size={14} color={C.muted} />
+        <input style={{ background:"transparent", border:"none", outline:"none", color:C.text, fontSize:13, flex:1, fontFamily:"inherit" }}
+          placeholder="ค้นหางาน..."
+          value={taskSearch}
+          onChange={e => setTaskSearch(e.target.value)} />
+        {taskSearch && <span style={{ cursor:"pointer", color:C.muted, fontSize:16, lineHeight:1 }} onClick={() => setTaskSearch("")}>×</span>}
+      </div>
+
+      {/* Filter tabs */}
       <div style={{ display:"flex", gap:5, marginBottom:12, flexWrap:"wrap" }}>
-        {[{ id:"all", label:"ทั้งหมด" }, { id:"pending", label:"ยังค้าง" }, { id:"done", label:"เสร็จ" },
-          ...Object.entries(CATS).map(([k, v]) => ({ id:k, label:v.label })),
+        {[{id:"all",label:"ทั้งหมด"},{id:"pending",label:"ยังค้าง"},{id:"done",label:"เสร็จ"},
+          ...Object.entries(CATS).map(([k,v])=>({id:k,label:v.label})),
         ].map(f => (
-          <button key={f.id} className={tkFilter === f.id ? "bp" : "bg"}
-            style={btn(tkFilter === f.id ? "primary" : "ghost", { fontSize:11, padding:"5px 10px" })}
+          <button key={f.id} className={tkFilter===f.id?"bp":"bg"}
+            style={btn(tkFilter===f.id?"primary":"ghost",{fontSize:11,padding:"5px 10px"})}
             onClick={() => setTkFilter(f.id)}>{f.label}</button>
         ))}
       </div>
+
       <StatRow items={[
         { label:"ทั้งหมด",  val:tasks.length, color:C.accent },
         { label:"ยังค้าง", val:pendingCt,    color:C.red },
         { label:"เสร็จแล้ว", val:`${pct}%`,  color:C.green },
       ]} />
-      {showAddTk && <AddTaskForm onAdd={addTask} onCancel={cancelAddTk} />}
+
+      {showAddTk && <AddTaskForm onSubmit={addTask} onCancel={cancelAddTk} />}
+
       {loading ? (
         <div style={{ textAlign:"center", padding:40, color:C.muted, fontSize:13 }}>กำลังโหลด...</div>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length===0 ? (
         <div style={{ textAlign:"center", padding:40, color:C.dim }}>
           <div style={{ fontSize:28, marginBottom:8 }}>✓</div>
-          <div style={{ fontSize:13 }}>ไม่มีงานในหมวดนี้</div>
+          <div style={{ fontSize:13 }}>{taskSearch ? `ไม่พบ "${taskSearch}"` : "ไม่มีงานในหมวดนี้"}</div>
         </div>
       ) : filtered.map(tk => {
-        const cat = CATS[tk.category] || CATS.other;
-        const pri = PRIS[tk.priority] || PRIS.medium;
+        const cat = CATS[tk.category]||CATS.other;
+        const pri = PRIS[tk.priority]||PRIS.medium;
         return (
-          <div key={tk.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"11px 12px", borderRadius:9, background:"rgba(15,23,42,.5)", border:`1px solid ${C.border}`, marginBottom:7, opacity:tk.completed ? .45 : 1, minHeight:44 }}>
+          <div key={tk.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"11px 12px", borderRadius:9, background:"rgba(15,23,42,.5)", border:`1px solid ${C.border}`, marginBottom:7, opacity:tk.completed?.45:1, minHeight:44 }}>
             <div onClick={() => toggleTask(tk.id, tk.completed)}
               style={{ width:18, height:18, borderRadius:4, border:`2px solid ${tk.completed?C.accent:"rgba(99,102,241,.35)"}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1, background:tk.completed?C.accent:"transparent", transition:"all .15s" }}>
               {tk.completed && <Check size={11} color="#fff" />}
@@ -463,12 +604,17 @@ export default function App() {
             <div style={{ flex:1 }}>
               <div style={{ fontSize:13.5, fontWeight:500, color:tk.completed?C.muted:C.text, textDecoration:tk.completed?"line-through":"none" }}>{tk.title}</div>
               <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
-                <span style={tag(cat.color, cat.bg)}>{cat.label}</span>
-                <span style={tag(pri.color, pri.bg)}>{pri.label}</span>
-                {tk.due && <span style={tag(C.muted, "rgba(148,163,184,.08)")}>📅 {tk.due}</span>}
+                <span style={tag(cat.color,cat.bg)}>{cat.label}</span>
+                <span style={tag(pri.color,pri.bg)}>{pri.label}</span>
+                {tk.due && <span style={tag(C.muted,"rgba(148,163,184,.08)")}>📅 {tk.due}</span>}
               </div>
             </div>
-            <button className="bg" style={btn("danger", { fontSize:11, padding:"4px 8px", flexShrink:0 })} onClick={() => deleteTask(tk.id)}>
+            <button className="bg" style={btn("ghost",{fontSize:11,padding:"4px 8px",flexShrink:0})}
+              onClick={() => setEditingTk(tk)}>
+              <Pencil size={12} />
+            </button>
+            <button className="bg" style={btn("danger",{fontSize:11,padding:"4px 8px",flexShrink:0})}
+              onClick={() => requestDelete("task", tk.id, tk.title)}>
               <Trash2 size={12} />
             </button>
           </div>
@@ -477,34 +623,62 @@ export default function App() {
     </div>
   );
 
+  /* ─── CSS ── */
+  const globalCSS = `
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:2px}
+    input::placeholder{color:#374151}select option{background:#0F172A;color:#E2E8F0}
+    .bp:hover{background:#4F46E5!important}.bg:hover{background:rgba(99,102,241,.1)!important;color:#A5B4FC!important}
+    .nav-arrow:hover{border-color:#6366F1!important;color:#6366F1!important;background:rgba(99,102,241,.1)!important}
+    .nav-i:hover{background:rgba(99,102,241,.08)!important;color:#A5B4FC!important}
+    input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
+  `;
+
+  /* ── OVERLAYS (render at top level) ── */
+  const Overlays = () => (
+    <>
+      <Toasts items={toasts} />
+      {pendingDel && <ConfirmModal item={pendingDel} onConfirm={confirmDelete} onCancel={() => setPendingDel(null)} />}
+      {editingEv && (
+        <EditOverlay>
+          <AddEventForm
+            initialValues={{ date:editingEv.date, hour:String(editingEv.hour), endHour:String(editingEv.endHour), title:editingEv.title, category:editingEv.category }}
+            onSubmit={data => updateEvent(editingEv.id, data)}
+            onCancel={() => setEditingEv(null)}
+          />
+        </EditOverlay>
+      )}
+      {editingTk && (
+        <EditOverlay>
+          <AddTaskForm
+            initialValues={{ title:editingTk.title, priority:editingTk.priority, category:editingTk.category, due:editingTk.due||"" }}
+            onSubmit={data => updateTask(editingTk.id, data)}
+            onCancel={() => setEditingTk(null)}
+          />
+        </EditOverlay>
+      )}
+    </>
+  );
+
   /* ─── MOBILE LAYOUT ── */
   if (isMobile) return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:2px}
-        input::placeholder{color:#374151}select option{background:#0F172A;color:#E2E8F0}
-        .bp:hover{background:#4F46E5!important}.bg:hover{background:rgba(99,102,241,.1)!important;color:#A5B4FC!important}
-        .nav-arrow:hover{border-color:#6366F1!important;color:#6366F1!important;background:rgba(99,102,241,.1)!important}
-        .cs:hover{background:rgba(99,102,241,.18)!important}
-        input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
-      `}</style>
+      <style>{globalCSS}</style>
+      {Overlays()}
 
       <div style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}`, background:"rgba(9,14,28,.97)", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
         <div>
           <div style={{ fontFamily:C.fontMono, fontSize:12, fontWeight:600, color:C.accent, letterSpacing:".06em" }}>EXEC_AI</div>
-          <div style={{ fontSize:10, color:C.muted }}>
-            {view==="planner" ? "📅 ตารางประจำวัน" : "✅ จัดการงาน"}
-          </div>
+          <div style={{ fontSize:10, color:C.muted }}>{view==="planner"?"📅 ตารางประจำวัน":"✅ จัดการงาน"}</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontFamily:C.fontMono, fontSize:16, fontWeight:600, color:C.accent }}>{fmtT(now)}</div>
             <div style={{ fontSize:10, color:C.muted }}>{fmtD(now)}</div>
           </div>
-          {view==="planner" && <button className="bp" style={btn("primary", { padding:"7px 10px", fontSize:12 })} onClick={() => setShowAddEv(p => !p)}><Plus size={14} /></button>}
-          {view==="tasks"   && <button className="bp" style={btn("primary", { padding:"7px 10px", fontSize:12 })} onClick={() => setShowAddTk(p => !p)}><Plus size={14} /></button>}
+          {view==="planner" && <button className="bp" style={btn("primary",{padding:"7px 10px",fontSize:12})} onClick={() => setShowAddEv(p=>!p)}><Plus size={14}/></button>}
+          {view==="tasks"   && <button className="bp" style={btn("primary",{padding:"7px 10px",fontSize:12})} onClick={() => setShowAddTk(p=>!p)}><Plus size={14}/></button>}
         </div>
       </div>
 
@@ -519,7 +693,7 @@ export default function App() {
             style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"10px 0 8px", cursor:"pointer", color:view===n.id?C.accent:C.muted, transition:"color .15s", position:"relative" }}>
             <div style={{ position:"relative", display:"inline-flex" }}>
               {n.icon}
-              {n.badge > 0 && <span style={{ position:"absolute", top:-4, right:-8, background:C.accent, color:"#fff", borderRadius:999, fontSize:9, fontWeight:700, minWidth:14, height:14, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>{n.badge}</span>}
+              {n.badge>0 && <span style={{ position:"absolute", top:-4, right:-8, background:C.accent, color:"#fff", borderRadius:999, fontSize:9, fontWeight:700, minWidth:14, height:14, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>{n.badge}</span>}
             </div>
             <div style={{ fontSize:10, marginTop:3, fontWeight:view===n.id?600:400 }}>{n.label}</div>
             {view===n.id && <div style={{ position:"absolute", bottom:0, left:"25%", right:"25%", height:2, background:C.accent, borderRadius:"2px 2px 0 0" }} />}
@@ -532,17 +706,8 @@ export default function App() {
   /* ─── DESKTOP LAYOUT ── */
   return (
     <div style={{ display:"flex", height:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:2px}
-        input::placeholder{color:#374151}select option{background:#0F172A;color:#E2E8F0}
-        .bp:hover{background:#4F46E5!important}.bg:hover{background:rgba(99,102,241,.1)!important;color:#A5B4FC!important}
-        .nav-arrow:hover{border-color:#6366F1!important;color:#6366F1!important;background:rgba(99,102,241,.1)!important}
-        .nav-i:hover{background:rgba(99,102,241,.08)!important;color:#A5B4FC!important}
-        .cs:hover{background:rgba(99,102,241,.18)!important}
-        input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.4)}
-      `}</style>
+      <style>{globalCSS}</style>
+      {Overlays()}
 
       <div style={{ width:210, minWidth:210, background:"rgba(9,14,28,.98)", borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"20px 18px 16px", borderBottom:`1px solid ${C.border}` }}>
@@ -555,14 +720,14 @@ export default function App() {
               style={{ display:"flex", alignItems:"center", gap:9, padding:"10px 18px", cursor:"pointer", fontSize:13, color:view===n.id?"#818CF8":C.muted, borderLeft:`2px solid ${view===n.id?C.accent:"transparent"}`, background:view===n.id?C.accentDim:"transparent", transition:"all .15s" }}>
               {n.icon}
               <span style={{ flex:1 }}>{n.label}</span>
-              {n.badge > 0 && <span style={{ background:C.accent, color:"#fff", borderRadius:999, fontSize:10, fontWeight:700, minWidth:17, height:17, display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"0 4px" }}>{n.badge}</span>}
+              {n.badge>0 && <span style={{ background:C.accent, color:"#fff", borderRadius:999, fontSize:10, fontWeight:700, minWidth:17, height:17, display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"0 4px" }}>{n.badge}</span>}
             </div>
           ))}
         </div>
         <div style={{ padding:"14px 18px", borderTop:`1px solid ${C.border}` }}>
           <div style={{ fontFamily:C.fontMono, fontSize:21, fontWeight:600, color:C.accent }}>{fmtT(now)}</div>
           <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{fmtD(now)}</div>
-          {tasks.length > 0 && (
+          {tasks.length>0 && (
             <div style={{ marginTop:10 }}>
               <div style={{ fontSize:10, color:C.dim, marginBottom:4 }}>งาน {doneCt}/{tasks.length} เสร็จ</div>
               <div style={{ height:3, background:"rgba(99,102,241,.15)", borderRadius:99, overflow:"hidden" }}>
@@ -586,8 +751,8 @@ export default function App() {
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
-            {view==="planner" && <button className="bp" style={btn("primary")} onClick={() => setShowAddEv(p => !p)}><Plus size={14} /> เพิ่มกิจกรรม</button>}
-            {view==="tasks"   && <button className="bp" style={btn("primary")} onClick={() => setShowAddTk(p => !p)}><Plus size={14} /> เพิ่มงาน</button>}
+            {view==="planner" && <button className="bp" style={btn("primary")} onClick={() => setShowAddEv(p=>!p)}><Plus size={14}/> เพิ่มกิจกรรม</button>}
+            {view==="tasks"   && <button className="bp" style={btn("primary")} onClick={() => setShowAddTk(p=>!p)}><Plus size={14}/> เพิ่มงาน</button>}
           </div>
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"18px 22px" }}>
